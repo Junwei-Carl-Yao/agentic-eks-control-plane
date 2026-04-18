@@ -1,0 +1,2 @@
+# Python project metadata for the FastAPI backend.
+# Dependencies: fastapi, uvicorn, kubernetes, anthropic, pydantic.
