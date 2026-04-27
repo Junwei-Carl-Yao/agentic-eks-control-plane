@@ -4,7 +4,10 @@
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+backend.hcl
+!backend.hcl.example
 .terraform.lock.hcl
+tfplan
 
 # Python
 __pycache__/
