@@ -8,7 +8,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 
 ## Stack
 
-- **Infrastructure:** Terraform + AWS (EKS, VPC, IAM, S3, DynamoDB)
+- **Infrastructure:** Terraform + AWS (EKS, VPC, IAM, S3 remote state with native locking)
 - **Backend:** Python + FastAPI + Kubernetes client + Anthropic SDK
 - **Frontend:** React + Vite + TypeScript
 - **Deployment:** Helm, ALB Ingress Controller
@@ -42,7 +42,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 
 **Infrastructure Layer (Terraform):**
 - Provisions the EKS cluster and networking (VPC, node groups)
-- Maintains remote state with locking (S3 + DynamoDB)
+- Maintains remote state with locking (S3 bucket + native S3 conditional-write locking)
 - Supports drift detection via `terraform plan` (read-only)
 
 ### Execution Model

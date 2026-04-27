@@ -1,1 +1,25 @@
-# Example tfvars for the dev environment.
+# Dev-environment defaults. Copy to terraform.tfvars (gitignored) and adjust.
+
+region       = "us-east-1"
+environment  = "dev"
+cluster_name = "eks-control-plane-dev"
+
+cluster_version = "1.30"
+vpc_cidr        = "10.0.0.0/16"
+
+node_instance_types = ["t3.medium"]
+node_desired_size   = 2
+node_min_size       = 1
+node_max_size       = 4
+
+# Fill in with the bucket name scripts/bootstrap.sh prints. Must match what
+# is in envs/dev/backend.hcl. State locking uses S3 native conditional
+# writes (use_lockfile in backend.hcl), so no DynamoDB table is needed.
+state_bucket_name = "eks-control-plane-tfstate-REPLACE_ME"
+
+backend_namespace       = "control-plane"
+backend_service_account = "backend"
+
+tags = {
+  Owner = "platform"
+}

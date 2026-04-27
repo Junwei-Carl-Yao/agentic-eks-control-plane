@@ -1,0 +1,9 @@
+# Backend config for `terraform init -backend-config=envs/dev/backend.hcl`.
+# Populate with the bucket name scripts/bootstrap.sh printed. Copy to
+# backend.hcl (gitignored).
+
+bucket       = "eks-control-plane-tfstate-REPLACE_ME"
+use_lockfile = true
+region       = "us-east-1"
+key          = "eks-control-plane/dev/terraform.tfstate"
+encrypt      = true

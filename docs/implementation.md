@@ -10,7 +10,7 @@ Step-by-step build order for the Agentic EKS Control Plane, derived from `requir
 
 1. Initialize git, commit the current skeleton.
 2. Add `Makefile` targets: `apply`, `destroy`, `plan`, `dev`, `test`, `lint`, `backend`, `frontend`.
-3. Pin toolchain versions: Terraform (>= 1.6), `uv`, `tflint`, Python (3.14), Node (>= 20), Helm (>= 3.12), `kubectl`, `awscli`. For CI and local parity, pin exact patch versions in lockfiles/tool-versions where possible.
+3. Pin toolchain versions: Terraform (>= 1.11; required for S3 native state locking), `uv`, `tflint`, Python (3.14), Node (>= 20), Helm (>= 3.12), `kubectl`, `awscli`. For CI and local parity, pin exact patch versions in lockfiles/tool-versions where possible.
 4. Configure formatters/linters:
    - Backend: `ruff`, `black`, `mypy`, `pytest`.
    - Frontend: `eslint`, `prettier`, `tsc --noEmit`.
@@ -26,13 +26,13 @@ Step-by-step build order for the Agentic EKS Control Plane, derived from `requir
 **Goal:** Stand up the AWS substrate - VPC, EKS cluster, IAM - with reproducible Terraform so the rest of the system has a real cluster to target.
 
 ### 1.1 Remote state bootstrap (`scripts/bootstrap.sh`)
-- Create an S3 bucket (versioning + encryption) for state.
-- Create a DynamoDB table (`LockID` primary key) for state locking.
-- Output bucket/table names for use in `backend.tf`.
+- Create an S3 bucket (versioning + encryption + public-access-block) for state.
+- State locking uses S3 native conditional writes (`use_lockfile = true`, Terraform >= 1.11) — no DynamoDB table required; the lock is a transient `<key>.tflock` object in the same bucket.
+- Output the bucket name for use in `backend.hcl`.
 
 ### 1.2 Root composition (`infrastructure/`)
 - `versions.tf`: declare `aws`, `tls`, `kubernetes` provider versions.
-- `backend.tf`: wire S3 + DynamoDB remote state.
+- `backend.tf`: wire S3 remote state with native locking.
 - `variables.tf`: `region`, `cluster_name`, `vpc_cidr`, `node_instance_types`, `node_desired_size`, `node_max_size`, `node_min_size`, `environment`.
 - `main.tf`: compose the three modules below.
 - `outputs.tf`: export cluster endpoint, cluster CA, node group ARNs, OIDC issuer, kubeconfig snippet.
@@ -56,7 +56,7 @@ Step-by-step build order for the Agentic EKS Control Plane, derived from `requir
 ### 1.6 Environment tfvars
 - `envs/dev/terraform.tfvars.example` with sensible defaults.
 
-**Exit criteria:** `make apply` provisions a cluster; `kubectl get nodes` succeeds; `make destroy` tears down cleanly with no orphans.
+**Exit criteria:** `make apply` provisions a cluster; `make apply-verify` passes (asserts cluster reachability and at least one Ready node); `make destroy` followed by `make teardown-verify` reports no orphans. The `scripts/apply-all.ps1` and `scripts/teardown-all.ps1` wrappers run these in order.
 
 ---
 

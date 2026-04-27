@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in */infrastructure/*|*'\\infrastructure\\'*) ;; *) exit 0 ;; esac; cd infrastructure || exit 2; terraform fmt -check -recursive 1>&2 || exit 2; terraform init -backend=false -input=false 1>&2 || exit 2; terraform validate 1>&2 || exit 2",
+            "timeout": 120,
+            "statusMessage": "terraform fmt + validate"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "out=$(make lint 2>&1); rc=$?; if [ $rc -ne 0 ]; then printf '%s' \"$out\" | python -c \"import json,sys; rc=sys.argv[1]; out=sys.stdin.read(); print(json.dumps({'decision':'block','reason':'Phase 0 exit criteria failed (make lint exit='+rc+'). Fix lint errors before finishing turn:\\n\\n'+out}))\" \"$rc\"; fi; exit 0",
+            "timeout": 300,
+            "statusMessage": "Verifying Phase 0 exit criteria (make lint)"
+          }
+        ]
+      }
+    ]
+  }
+}

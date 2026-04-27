@@ -13,15 +13,33 @@ BACKEND_DIR     := backend
 FRONTEND_DIR    := frontend
 HELM_DIR        := deploy/helm
 BOOTSTRAP       := scripts/bootstrap.sh
+ASSERT_SCRIPT   := tests/infra_assertions.sh
+TEARDOWN_SCRIPT := tests/teardown_verify.sh
 
 TF              := terraform
 TF_ENV          ?= dev
 TF_VAR_FILE     := envs/$(TF_ENV)/terraform.tfvars
+TF_BACKEND_FILE := envs/$(TF_ENV)/backend.hcl
+TF_INIT         := $(TF) init -backend=true -input=false -backend-config=$(TF_BACKEND_FILE)
 
 IMAGE_REGISTRY ?= ghcr.io/your-org
 IMAGE_TAG      ?= dev
 
 UV ?= uv
+
+# On Windows, C:\Windows\System32\bash.exe (WSL) usually shadows Git Bash
+# on PATH and fails when no WSL distro is installed. Resolve Git Bash
+# explicitly via git's exec path so the verify scripts run from any shell.
+ifeq ($(OS),Windows_NT)
+GIT_EXEC_PATH := $(shell git --exec-path 2>nul)
+ifeq ($(GIT_EXEC_PATH),)
+BASH := bash
+else
+BASH := "$(GIT_EXEC_PATH)/../../../bin/bash.exe"
+endif
+else
+BASH := bash
+endif
 
 .PHONY: help \
         bootstrap sync \
@@ -32,12 +50,12 @@ UV ?= uv
         format format-backend format-frontend format-terraform \
         backend frontend \
         deploy \
-        drift teardown-verify \
+        drift apply-verify teardown-verify \
         clean
 
 help:
 	@echo "Available targets:"
-	@echo "  bootstrap          - provision Terraform remote state (S3 + DynamoDB)"
+	@echo "  bootstrap          - provision Terraform remote state (S3 bucket; locking via S3 use_lockfile)"
 	@echo "  sync               - install backend deps via uv (creates .venv, writes uv.lock)"
 	@echo "  plan               - terraform plan against env=$(TF_ENV)"
 	@echo "  apply              - terraform apply against env=$(TF_ENV)"
@@ -50,33 +68,25 @@ help:
 	@echo "  frontend           - build and push the frontend container image"
 	@echo "  deploy             - helm upgrade --install backend + frontend charts"
 	@echo "  drift              - run terraform plan -detailed-exitcode for drift"
-	@echo "  teardown-verify    - destroy and verify no orphaned AWS resources"
+	@echo "  apply-verify       - assert deployed infra matches spec (run after apply)"
+	@echo "  teardown-verify    - scan AWS for orphans after destroy"
 	@echo ""
 	@echo "Override the environment with TF_ENV=<name> (default: dev)."
 
-ifeq ($(OS),Windows_NT)
 bootstrap:
-	@powershell -NoProfile -Command "$$p = '$(BOOTSTRAP)'; if (!(Test-Path $$p)) { Write-Host ('[placeholder] ' + $$p + ' is empty - implement remote-state bootstrap'); exit 0 }; $$lines = Get-Content $$p; $$meaningful = $$lines | Where-Object { $$_.Trim() -ne '' -and -not $$_.TrimStart().StartsWith('#') -and -not $$_.TrimStart().StartsWith('#!') }; if (@($$meaningful).Count -eq 0) { Write-Host ('[placeholder] ' + $$p + ' is empty - implement remote-state bootstrap'); exit 0 }; if (Get-Command bash -ErrorAction SilentlyContinue) { bash $$p } else { Write-Error \"bash is required to run scripts/bootstrap.sh\"; exit 1 }"
-else
-bootstrap:
-	@if [ -s "$(BOOTSTRAP)" ] && grep -Eq '^[[:space:]]*[^#[:space:]]' "$(BOOTSTRAP)"; then \
-	  bash "$(BOOTSTRAP)"; \
-	else \
-	  echo "[placeholder] $(BOOTSTRAP) is empty - implement remote-state bootstrap"; \
-	fi
-endif
+	@$(BASH) "$(BOOTSTRAP)"
 
 sync:
 	cd $(BACKEND_DIR) && $(UV) sync --extra dev
 
 plan:
-	cd $(INFRA_DIR) && $(TF) init -backend=true -input=false && $(TF) plan -var-file=$(TF_VAR_FILE) -out=tfplan
+	cd $(INFRA_DIR) && $(TF_INIT) && $(TF) plan -var-file=$(TF_VAR_FILE) -out=tfplan
 
 apply:
-	cd $(INFRA_DIR) && $(TF) init -backend=true -input=false && $(TF) apply -var-file=$(TF_VAR_FILE) -auto-approve
+	cd $(INFRA_DIR) && $(TF_INIT) && $(TF) apply -var-file=$(TF_VAR_FILE) -auto-approve
 
 destroy:
-	cd $(INFRA_DIR) && $(TF) init -backend=true -input=false && $(TF) destroy -var-file=$(TF_VAR_FILE) -auto-approve
+	cd $(INFRA_DIR) && $(TF_INIT) && $(TF) destroy -var-file=$(TF_VAR_FILE) -auto-approve
 
 dev: dev-backend dev-frontend
 
@@ -134,8 +144,11 @@ deploy:
 drift:
 	@echo "[placeholder] drift detection (terraform plan -detailed-exitcode -json)"
 
+apply-verify:
+	@$(BASH) "$(ASSERT_SCRIPT)"
+
 teardown-verify:
-	@echo "[placeholder] teardown verification (scan for orphan ALBs/ENIs/EBS/IAM)"
+	@$(BASH) "$(TEARDOWN_SCRIPT)"
 
 ifeq ($(OS),Windows_NT)
 clean:
