@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$payload = [Console]::In.ReadToEnd(); if ([string]::IsNullOrWhiteSpace($payload)) { exit 0 }; try { $event = $payload | ConvertFrom-Json -ErrorAction Stop } catch { exit 0 }; $filePath = $event.tool_input.file_path; if ([string]::IsNullOrWhiteSpace($filePath)) { exit 0 }; if ($filePath -notmatch '(^|[\\\\/])infrastructure([\\\\/]|$)') { exit 0 }; Push-Location infrastructure; try { terraform fmt -check -recursive; if ($LASTEXITCODE -ne 0) { exit 2 }; terraform init -backend=false -input=false; if ($LASTEXITCODE -ne 0) { exit 2 }; terraform validate; if ($LASTEXITCODE -ne 0) { exit 2 } } finally { Pop-Location }",
+            "command": "$payload = [Console]::In.ReadToEnd(); if ([string]::IsNullOrWhiteSpace($payload)) { exit 0 }; try { $event = $payload | ConvertFrom-Json -ErrorAction Stop } catch { exit 0 }; $filePath = $event.tool_input.file_path; if ([string]::IsNullOrWhiteSpace($filePath)) { exit 0 }; $normFile = ($filePath -replace '\\\\','/').ToLowerInvariant(); $root = ((Resolve-Path '.').Path -replace '\\\\','/').ToLowerInvariant().TrimEnd('/'); if (-not ($normFile.StartsWith(\"$root/infrastructure/\") -or $normFile.StartsWith('infrastructure/'))) { exit 0 }; Push-Location infrastructure; try { terraform fmt -check -recursive; if ($LASTEXITCODE -ne 0) { exit 2 }; terraform validate; if ($LASTEXITCODE -ne 0) { exit 2 } } finally { Pop-Location }",
             "timeout": 120,
             "statusMessage": "terraform fmt + validate"
           }
