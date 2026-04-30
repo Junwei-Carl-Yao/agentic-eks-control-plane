@@ -1,1 +1,0 @@
-# Kubernetes API client wrapper.

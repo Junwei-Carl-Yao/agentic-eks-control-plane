@@ -1,14 +1,18 @@
 # Backend
 
-FastAPI service that hosts the agent runtime and the guardrailed execution layer.
+Go API service that hosts the guardrailed execution layer.
 
 ## Layout
 
-- `app/api/` — HTTP routes
-- `app/agents/` — Planner and Validator agents (Claude Agent SDK)
-- `app/guardrails/` — Policy checks and input validation
-- `app/kubernetes/` — Kubernetes client wrapper
-- `app/terraform/` — Terraform CLI wrapper (read-only)
-- `app/models/` — Pydantic schemas
-- `app/core/` — Config, logging, settings
-- `tests/` — Unit, integration, and agent evaluations
+- `cmd/server/` — `main` entrypoint
+- `internal/server/` — HTTP routes, CORS, middleware
+- `internal/config/` — env-loaded settings
+- `internal/logging/` — structured JSON logging (slog)
+
+## Running locally
+
+```
+go run ./cmd/server
+```
+
+Override the listen address with `ADDR` (default `:8000`). Other env vars: `LOG_LEVEL`, `CORS_ORIGINS` (comma-separated), `AWS_REGION`, `KUBECONFIG`.

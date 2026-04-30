@@ -9,7 +9,8 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 ## Stack
 
 - **Infrastructure:** Terraform + AWS (EKS, VPC, IAM, S3 remote state with native locking)
-- **Backend:** Python + FastAPI + Kubernetes client + Anthropic SDK
+- **Backend:** Go + Kubernetes client
+- **Agent Runtime:** Claude Agent SDK
 - **Frontend:** React + Vite + TypeScript
 - **Deployment:** Helm, ALB Ingress Controller
 
@@ -27,7 +28,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
   - **Validator Agent:** Reviews proposed actions against safety constraints before execution
 - Uses structured tool interfaces (e.g., scale, rollout restart, pause/resume rollout, rollback, env update)
 
-**Guardrailed Execution Layer (Backend - FastAPI):**
+**Guardrailed Execution Layer (Backend):**
 - Acts as the single execution boundary for all operations
 - Enforces:
   - Input validation (resource names, namespaces, replica bounds)
@@ -58,7 +59,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - Guardrailed execution of infrastructure operations (scale, rollout restart, pause/resume rollout, rollback, env update)
 - Two-agent architecture (planner + validator) using the Claude Agent SDK
 - Backend-enforced safety constraints independent of LLM behavior
-- Read-only Terraform integration for drift detection
+- Read-only Terraform integration (`plan`, `show`, `state`, `output`)
 - Single-cluster EKS control plane
 
 ### Out of Scope
@@ -81,7 +82,6 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - Update environment variables (guardrailed)
 - Run `terraform plan`
 - Run Terraform read operations (`show`, `state`, `output`)
-- Detect drift
 
 **Blocked:**
 - `terraform apply` / `terraform destroy`

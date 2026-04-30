@@ -9,15 +9,12 @@ backend.hcl
 .terraform.lock.hcl
 tfplan
 
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-*.egg-info/
+# Go
+*.exe
+*.test
+*.out
+/backend/bin/
+/backend/dist/
 
 # Node
 node_modules/

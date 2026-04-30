@@ -1,1 +1,1 @@
-// Shared TypeScript types mirroring backend Pydantic models.
+// Shared TypeScript types mirroring backend Go API models.

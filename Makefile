@@ -25,7 +25,8 @@ TF_INIT         := $(TF) init -backend=true -input=false -backend-config=$(TF_BA
 IMAGE_REGISTRY ?= ghcr.io/your-org
 IMAGE_TAG      ?= dev
 
-UV ?= uv
+GO ?= go
+GOFMT ?= gofmt
 
 # On Windows, C:\Windows\System32\bash.exe (WSL) usually shadows Git Bash
 # on PATH and fails when no WSL distro is installed. Resolve Git Bash
@@ -56,7 +57,7 @@ endif
 help:
 	@echo "Available targets:"
 	@echo "  bootstrap          - provision Terraform remote state (S3 bucket; locking via S3 use_lockfile)"
-	@echo "  sync               - install backend deps via uv (creates .venv, writes uv.lock)"
+	@echo "  sync               - download backend Go module deps (writes go.sum)"
 	@echo "  plan               - terraform plan against env=$(TF_ENV)"
 	@echo "  apply              - terraform apply against env=$(TF_ENV)"
 	@echo "  destroy            - terraform destroy against env=$(TF_ENV)"
@@ -77,7 +78,7 @@ bootstrap:
 	@$(BASH) "$(BOOTSTRAP)"
 
 sync:
-	cd $(BACKEND_DIR) && $(UV) sync --extra dev
+	cd $(BACKEND_DIR) && $(GO) mod download
 
 plan:
 	cd $(INFRA_DIR) && $(TF_INIT) && $(TF) plan -var-file=$(TF_VAR_FILE) -out=tfplan
@@ -91,7 +92,7 @@ destroy:
 dev: dev-backend dev-frontend
 
 dev-backend:
-	cd $(BACKEND_DIR) && $(UV) run uvicorn app.main:app --reload
+	cd $(BACKEND_DIR) && $(GO) run ./cmd/server
 
 dev-frontend:
 	@echo "[placeholder] frontend dev server (npm run dev)"
@@ -99,7 +100,7 @@ dev-frontend:
 test: test-backend test-frontend
 
 test-backend:
-	cd $(BACKEND_DIR) && $(UV) run pytest
+	cd $(BACKEND_DIR) && $(GO) test ./...
 
 test-frontend:
 	@echo "[placeholder] frontend tests (vitest)"
@@ -107,9 +108,7 @@ test-frontend:
 lint: lint-backend lint-frontend lint-terraform
 
 lint-backend:
-	cd $(BACKEND_DIR) && $(UV) run ruff check .
-	cd $(BACKEND_DIR) && $(UV) run black --check .
-	cd $(BACKEND_DIR) && $(UV) run mypy
+	@$(BASH) "$(BACKEND_DIR)/scripts/lint.sh"
 
 lint-frontend:
 	cd $(FRONTEND_DIR) && npm run lint
@@ -123,8 +122,7 @@ lint-terraform:
 format: format-backend format-frontend format-terraform
 
 format-backend:
-	cd $(BACKEND_DIR) && $(UV) run ruff check --fix .
-	cd $(BACKEND_DIR) && $(UV) run black .
+	cd $(BACKEND_DIR) && $(GOFMT) -w .
 
 format-frontend:
 	cd $(FRONTEND_DIR) && npm run format

@@ -5,7 +5,9 @@
       "Bash(make lint *)",
       "Skill(update-config)",
       "Bash(make help *)",
-      "PowerShell(make teardown-verify *)"
+      "PowerShell(make teardown-verify *)",
+      "Bash(go build *)",
+      "Bash(go test *)"
     ]
   }
 }
