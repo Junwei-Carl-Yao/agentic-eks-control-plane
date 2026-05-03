@@ -1,3 +1,6 @@
+// Package server hosts the HTTP API surface. Routes here are *plumbing* -
+// they parse, validate-structurally, dispatch, and translate errors. Policy
+// enforcement is Phase 3's job and lives in internal/guardrails.
 package server
 
 import (
@@ -7,41 +10,64 @@ import (
 	"eks-control-plane/backend/internal/config"
 )
 
-func New(cfg config.Settings) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", health)
-	return cors(cfg.CORSOrigins)(mux)
+// New builds the API handler. Optional Deps wire the cluster and operations
+// route groups; nil deps simply disable that group, which keeps the
+// constructor composable for degraded modes and per-feature tests.
+func New(settings config.Settings, deps ...Deps) http.Handler {
+	serveMux := http.NewServeMux()
+	serveMux.HandleFunc("/health", health)
+
+	var resolved Deps
+	if len(deps) > 0 {
+		resolved = deps[0]
+	}
+	if resolved.Reader != nil {
+		mountClusterRoutes(serveMux, resolved.Reader)
+	}
+	if resolved.Ops != nil {
+		mountOperationRoutes(serveMux, resolved.Ops)
+	}
+	return cors(settings.CORSOrigins)(serveMux)
 }
 
-func health(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+func health(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func cors(allowed []string) func(http.Handler) http.Handler {
-	set := make(map[string]struct{}, len(allowed))
-	for _, o := range allowed {
-		set[o] = struct{}{}
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, allowedOrigin := range allowed {
+		allowedSet[allowedOrigin] = struct{}{}
 	}
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if _, ok := set[origin]; ok {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-				w.Header().Set("Vary", "Origin")
+		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			origin := request.Header.Get("Origin")
+			if _, ok := allowedSet[origin]; ok {
+				writer.Header().Set("Access-Control-Allow-Origin", origin)
+				writer.Header().Set("Access-Control-Allow-Credentials", "true")
+				writer.Header().Set("Vary", "Origin")
 			}
-			if r.Method == http.MethodOptions {
-				w.Header().Set("Access-Control-Allow-Methods", "*")
-				w.Header().Set("Access-Control-Allow-Headers", "*")
-				w.WriteHeader(http.StatusNoContent)
+			if request.Method == http.MethodOptions {
+				writer.Header().Set("Access-Control-Allow-Methods", "*")
+				writer.Header().Set("Access-Control-Allow-Headers", "*")
+				writer.WriteHeader(http.StatusNoContent)
 				return
 			}
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(writer, request)
 		})
 	}
+}
+
+func writeJSON(writer http.ResponseWriter, status int, body any) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(status)
+	_ = json.NewEncoder(writer).Encode(body)
+}
+
+func writeError(writer http.ResponseWriter, status int, msg string) {
+	writeJSON(writer, status, map[string]string{"error": msg})
 }

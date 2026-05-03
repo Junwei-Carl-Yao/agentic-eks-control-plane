@@ -15,55 +15,55 @@ func newTestHandler() http.Handler {
 }
 
 func TestHealthReturnsOK(t *testing.T) {
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	newTestHandler().ServeHTTP(rr, req)
+	responseRecorder := httptest.NewRecorder()
+	healthRequest := httptest.NewRequest(http.MethodGet, "/health", nil)
+	newTestHandler().ServeHTTP(responseRecorder, healthRequest)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", responseRecorder.Code)
 	}
-	var body map[string]string
-	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+	var responseBody map[string]string
+	if err := json.NewDecoder(responseRecorder.Body).Decode(&responseBody); err != nil {
 		t.Fatal(err)
 	}
-	if body["status"] != "ok" {
-		t.Errorf("body = %v, want {status: ok}", body)
+	if responseBody["status"] != "ok" {
+		t.Errorf("body = %v, want {status: ok}", responseBody)
 	}
 }
 
 func TestCORSPreflightAllowsConfiguredOrigin(t *testing.T) {
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodOptions, "/health", nil)
-	req.Header.Set("Origin", "http://localhost:5173")
-	req.Header.Set("Access-Control-Request-Method", "GET")
-	newTestHandler().ServeHTTP(rr, req)
+	responseRecorder := httptest.NewRecorder()
+	preflightRequest := httptest.NewRequest(http.MethodOptions, "/health", nil)
+	preflightRequest.Header.Set("Origin", "http://localhost:5173")
+	preflightRequest.Header.Set("Access-Control-Request-Method", "GET")
+	newTestHandler().ServeHTTP(responseRecorder, preflightRequest)
 
-	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want http://localhost:5173", got)
+	if allowOriginHeader := responseRecorder.Header().Get("Access-Control-Allow-Origin"); allowOriginHeader != "http://localhost:5173" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want http://localhost:5173", allowOriginHeader)
 	}
-	if rr.Code != http.StatusNoContent {
-		t.Errorf("preflight status = %d, want 204", rr.Code)
+	if responseRecorder.Code != http.StatusNoContent {
+		t.Errorf("preflight status = %d, want 204", responseRecorder.Code)
 	}
 }
 
 func TestCORSDisallowsUnknownOrigin(t *testing.T) {
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodOptions, "/health", nil)
-	req.Header.Set("Origin", "http://evil.example.com")
-	req.Header.Set("Access-Control-Request-Method", "GET")
-	newTestHandler().ServeHTTP(rr, req)
+	responseRecorder := httptest.NewRecorder()
+	preflightRequest := httptest.NewRequest(http.MethodOptions, "/health", nil)
+	preflightRequest.Header.Set("Origin", "http://evil.example.com")
+	preflightRequest.Header.Set("Access-Control-Request-Method", "GET")
+	newTestHandler().ServeHTTP(responseRecorder, preflightRequest)
 
-	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want empty for unknown origin", got)
+	if allowOriginHeader := responseRecorder.Header().Get("Access-Control-Allow-Origin"); allowOriginHeader != "" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want empty for unknown origin", allowOriginHeader)
 	}
 }
 
 func TestHealthRejectsNonGet(t *testing.T) {
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/health", strings.NewReader(""))
-	newTestHandler().ServeHTTP(rr, req)
+	responseRecorder := httptest.NewRecorder()
+	postRequest := httptest.NewRequest(http.MethodPost, "/health", strings.NewReader(""))
+	newTestHandler().ServeHTTP(responseRecorder, postRequest)
 
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("status = %d, want 405", rr.Code)
+	if responseRecorder.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", responseRecorder.Code)
 	}
 }

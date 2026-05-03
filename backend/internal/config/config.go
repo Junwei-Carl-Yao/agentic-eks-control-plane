@@ -9,7 +9,6 @@ type Settings struct {
 	Kubeconfig  string
 	AWSRegion   string
 	CORSOrigins []string
-	LogLevel    string
 }
 
 func Load() Settings {
@@ -17,24 +16,23 @@ func Load() Settings {
 		Kubeconfig:  getenv("KUBECONFIG", ""),
 		AWSRegion:   getenv("AWS_REGION", "us-west-2"),
 		CORSOrigins: splitCSV(getenv("CORS_ORIGINS", "http://localhost:5173")),
-		LogLevel:    getenv("LOG_LEVEL", "INFO"),
 	}
 }
 
-func getenv(key, def string) string {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
-		return v
+func getenv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok && value != "" {
+		return value
 	}
-	return def
+	return fallback
 }
 
-func splitCSV(s string) []string {
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if t := strings.TrimSpace(p); t != "" {
-			out = append(out, t)
+func splitCSV(raw string) []string {
+	parts := strings.Split(raw, ",")
+	output := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			output = append(output, trimmed)
 		}
 	}
-	return out
+	return output
 }

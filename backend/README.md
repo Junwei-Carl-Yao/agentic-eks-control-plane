@@ -15,4 +15,4 @@ Go API service that hosts the guardrailed execution layer.
 go run ./cmd/server
 ```
 
-Override the listen address with `ADDR` (default `:8000`). Other env vars: `LOG_LEVEL`, `CORS_ORIGINS` (comma-separated), `AWS_REGION`, `KUBECONFIG`.
+Override the listen address with `ADDR` (default `:8000`). Other env vars: `CORS_ORIGINS` (comma-separated), `AWS_REGION`, `KUBECONFIG`.
