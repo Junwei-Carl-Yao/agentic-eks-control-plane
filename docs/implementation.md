@@ -93,7 +93,7 @@ Step-by-step build order for the Agentic EKS Control Plane, derived from `requir
 - `cluster.go`: read-only GETs (deployments, pods, events, logs).
 - `operations.go`: POSTs for each mutation, but they go through the guardrail enforcer before execution.
 
-**Exit criteria:** backend runs locally, `GET /health` returns 200, cluster read endpoints return live data against a test cluster.
+**Exit criteria:** `.\scripts\validate-backend-local-k8s.ps1` successfully passes against a local kind cluster.
 
 ---
 

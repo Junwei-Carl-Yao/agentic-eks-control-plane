@@ -13,8 +13,8 @@ BACKEND_DIR     := backend
 FRONTEND_DIR    := frontend
 HELM_DIR        := deploy/helm
 BOOTSTRAP       := scripts/bootstrap.sh
-ASSERT_SCRIPT   := tests/infra_assertions.sh
-TEARDOWN_SCRIPT := tests/teardown_verify.sh
+ASSERT_SCRIPT   := scripts/infra_assertions.sh
+TEARDOWN_SCRIPT := scripts/teardown_verify.sh
 
 TF              := terraform
 TF_ENV          ?= dev
@@ -108,7 +108,7 @@ test-frontend:
 lint: lint-backend lint-frontend lint-terraform
 
 lint-backend:
-	@$(BASH) "$(BACKEND_DIR)/scripts/lint.sh"
+	@$(BASH) "scripts/lint.sh"
 
 lint-frontend:
 	cd $(FRONTEND_DIR) && npm run lint
