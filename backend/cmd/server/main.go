@@ -7,23 +7,36 @@ import (
 	"time"
 
 	"eks-control-plane/backend/internal/config"
+	"eks-control-plane/backend/internal/kubernetes"
 	applog "eks-control-plane/backend/internal/logging"
 	"eks-control-plane/backend/internal/server"
 )
 
 func main() {
-	cfg := config.Load()
-	applog.Configure(cfg.LogLevel)
+	settings := config.Load()
+	logger := applog.Configure()
 
-	addr := os.Getenv("ADDR")
-	if addr == "" {
-		addr = ":8000"
+	address := os.Getenv("ADDR")
+	if address == "" {
+		address = ":8000"
 	}
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           server.New(cfg),
+	deps := server.Deps{}
+	if kubeClient, err := kubernetes.NewClient(settings); err != nil {
+		// In local-dev with no KUBECONFIG, the cluster routes simply stay
+		// unmounted. Log and continue rather than refusing to start - /health
+		// remains useful.
+		logger.Warn("kubernetes client unavailable; cluster routes disabled", "err", err)
+	} else {
+		deps.Reader = kubeClient
+		deps.Ops = kubeClient
+	}
+
+	httpServer := &http.Server{
+		Addr:              address,
+		Handler:           server.New(settings, deps),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	log.Fatal(srv.ListenAndServe())
+	logger.Info("listening", "addr", address)
+	log.Fatal(httpServer.ListenAndServe())
 }

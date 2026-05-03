@@ -1,0 +1,152 @@
+package server
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+
+	"eks-control-plane/backend/internal/config"
+	"eks-control-plane/backend/internal/kubernetes"
+)
+
+// stubReads is a ClusterReader test double. It's used in two modes:
+//   - by-value (`stubReads{deployments: ...}`) when the test only needs to
+//     supply data and doesn't care about side effects;
+//   - by-pointer (`&stubReads{}`) when the test reads back recorded fields
+//     (lastPodSelector, lastLogPod, ...).
+//
+// newTestHandlerWithReads accepts both forms.
+type stubReads struct {
+	deployments []Deployment
+	deployment  *Deployment
+	events      []Event
+	notFound    bool
+
+	lastPodSelector  string
+	lastLogPod       string
+	lastLogContainer string
+	lastLogLines     int64
+}
+
+func (stub *stubReads) ListDeployments(_ context.Context, _ string) ([]Deployment, error) {
+	return stub.deployments, nil
+}
+
+func (stub *stubReads) GetDeployment(_ context.Context, namespace, name string) (Deployment, error) {
+	if stub.notFound {
+		return Deployment{}, fmt.Errorf("%w: %s/%s", kubernetes.ErrNotFound, namespace, name)
+	}
+	if stub.deployment != nil {
+		return *stub.deployment, nil
+	}
+	return Deployment{}, nil
+}
+
+func (stub *stubReads) ListPods(_ context.Context, _ string, selector string) ([]Pod, error) {
+	stub.lastPodSelector = selector
+	return nil, nil
+}
+
+func (stub *stubReads) ListEvents(_ context.Context, _ string) ([]Event, error) {
+	return stub.events, nil
+}
+
+func (stub *stubReads) TailLogs(_ context.Context, _, pod, container string, lines int64) (string, error) {
+	stub.lastLogPod = pod
+	stub.lastLogContainer = container
+	stub.lastLogLines = lines
+	return "", nil
+}
+
+// stubOps is the Operations test double. All call recording is on a pointer
+// receiver, so tests must use `&stubOps{}` to read back fields.
+type stubOps struct {
+	scaleCalls           int
+	lastScaleReplicas    int32
+	lastRestart          string
+	paused               bool
+	resumed              bool
+	lastRollbackRevision int64
+	lastEnv              map[string]string
+	notFound             bool
+}
+
+func (stub *stubOps) maybeNotFound(namespace, name string) error {
+	if stub.notFound {
+		return fmt.Errorf("%w: %s/%s", kubernetes.ErrNotFound, namespace, name)
+	}
+	return nil
+}
+
+func (stub *stubOps) Scale(_ context.Context, namespace, name string, replicas int32) error {
+	if err := stub.maybeNotFound(namespace, name); err != nil {
+		return err
+	}
+	stub.scaleCalls++
+	stub.lastScaleReplicas = replicas
+	return nil
+}
+
+func (stub *stubOps) RolloutRestart(_ context.Context, namespace, name string) error {
+	if err := stub.maybeNotFound(namespace, name); err != nil {
+		return err
+	}
+	stub.lastRestart = namespace + "/" + name
+	return nil
+}
+
+func (stub *stubOps) PauseRollout(_ context.Context, namespace, name string) error {
+	if err := stub.maybeNotFound(namespace, name); err != nil {
+		return err
+	}
+	stub.paused = true
+	return nil
+}
+
+func (stub *stubOps) ResumeRollout(_ context.Context, namespace, name string) error {
+	if err := stub.maybeNotFound(namespace, name); err != nil {
+		return err
+	}
+	stub.resumed = true
+	return nil
+}
+
+func (stub *stubOps) Rollback(_ context.Context, namespace, name string, revision int64) error {
+	if err := stub.maybeNotFound(namespace, name); err != nil {
+		return err
+	}
+	stub.lastRollbackRevision = revision
+	return nil
+}
+
+func (stub *stubOps) UpdateEnv(_ context.Context, namespace, name, _ string, env map[string]string) error {
+	if err := stub.maybeNotFound(namespace, name); err != nil {
+		return err
+	}
+	stub.lastEnv = env
+	return nil
+}
+
+// --- handler builders ---
+
+func newTestHandlerWithReads(reader any) http.Handler {
+	return New(config.Settings{}, Deps{Reader: toReader(reader)})
+}
+
+func newTestHandlerWithOps(ops *stubOps) http.Handler {
+	return New(config.Settings{}, Deps{Ops: ops})
+}
+
+// toReader normalises stubReads / *stubReads to a ClusterReader. Value-form
+// inputs are taken by address into a fresh copy; the test isn't expected to
+// read state back in that case.
+func toReader(reader any) ClusterReader {
+	switch typed := reader.(type) {
+	case *stubReads:
+		return typed
+	case stubReads:
+		return &typed
+	default:
+		panic(fmt.Sprintf("toReader: unsupported type %T", reader))
+	}
+}

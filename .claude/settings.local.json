@@ -7,7 +7,13 @@
       "Bash(make help *)",
       "PowerShell(make teardown-verify *)",
       "Bash(go build *)",
-      "Bash(go test *)"
+      "Bash(go test *)",
+      "Bash(terraform init *)",
+      "Bash(make lint-frontend *)",
+      "Bash(go version *)",
+      "Bash(go mod *)",
+      "Bash(go vet *)",
+      "Bash(gofmt *)"
     ]
   }
 }

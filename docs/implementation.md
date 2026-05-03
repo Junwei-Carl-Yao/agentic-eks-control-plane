@@ -62,10 +62,10 @@ Step-by-step build order for the Agentic EKS Control Plane, derived from `requir
 
 ## Phase 2 - Backend Foundation
 
-**Goal:** Build the API surface that reads cluster and Terraform state and exposes mutation routes - the plumbing that the agent runtime and frontend will drive.
+**Goal:** Build the API surface that reads cluster state and exposes mutation routes - the plumbing that the agent runtime and frontend will drive.
 
 ### 2.1 Project setup (`backend/`)
-- `go.mod` with deps for Kubernetes/Terraform API work (for example `k8s.io/client-go`). HTTP, env loading, JSON, and tests come from the standard library.
+- `go.mod` with deps for Kubernetes API work (for example `k8s.io/client-go`). HTTP, env loading, JSON, and tests come from the standard library.
 - `Dockerfile` (multi-stage: build -> runtime) with non-root user.
 - `internal/config/`: settings loaded from env.
 - `internal/logging/`: structured JSON logging (`log/slog`).
@@ -86,16 +86,12 @@ Step-by-step build order for the Agentic EKS Control Plane, derived from `requir
   - `rollback(namespace, name, to_revision=None)`
   - `update_env(namespace, name, container, env_map)` - only the vars declared in request body; never touches `envFrom` or secret refs.
 
-### 2.3 Terraform layer (`backend/internal/terraform/`)
-- `client.go`: `Run(subcommand string, args []string)` using `os/exec` with a fixed allowlist (`plan`, `show`, `state`, `output`). Any other subcommand returns an error.
-
-### 2.4 Typed models (`backend/internal/models/`)
+### 2.3 Typed models (`backend/internal/models/`)
 - `operations.go`: request/response structs for each mutation op (with explicit validation helpers).
 
-### 2.5 API routes (`backend/internal/server/`)
+### 2.4 API routes (`backend/internal/server/`)
 - `cluster.go`: read-only GETs (deployments, pods, events, logs).
 - `operations.go`: POSTs for each mutation, but they go through the guardrail enforcer before execution.
-- `terraform.go`: GETs for `plan`, `show`, `state list`, `output`.
 
 **Exit criteria:** backend runs locally, `GET /health` returns 200, cluster read endpoints return live data against a test cluster.
 
@@ -112,7 +108,7 @@ Declarative policy constants:
 - `ALLOWED_NAMESPACES`: explicit list; default deny (never `kube-system`, `kube-public`, `default`).
 - `MAX_REPLICAS` per namespace (e.g. `{"app": 10}`).
 - `BLOCKED_RESOURCES`: `Secret`, `Namespace`, `PersistentVolumeClaim`, `ClusterRole`, `ClusterRoleBinding`, `Role`, `RoleBinding`.
-- `BLOCKED_OPERATIONS`: `delete_namespace`, `delete_pvc`, `delete_deployment`, `exec`, `secret_read`, `secret_write`, `rbac_modify`, `node_modify`, `terraform_apply`, `terraform_destroy`.
+- `BLOCKED_OPERATIONS`: `delete_namespace`, `delete_pvc`, `delete_deployment`, `exec`, `secret_read`, `secret_write`, `rbac_modify`, `node_modify`.
 - `ENV_VAR_DENYLIST`: keys that look like secrets (`*_SECRET`, `*_TOKEN`, `*_PASSWORD`, `*_KEY`) are rejected in `update_env`.
 
 ### 3.2 Input validation (`backend/internal/guardrails/validation.go`)
@@ -128,10 +124,6 @@ Declarative policy constants:
   - Step 3: return `Allow`, `Deny(reason)`, or `RequireValidator` (for ambiguous cases).
 - All mutation route handlers call `enforce(action)` first and short-circuit on deny.
 - Enforcer emits a structured audit log entry regardless of outcome.
-
-### 3.4 Terraform read-only guard
-- `internal/terraform/client.go` rejects any subcommand not in the allowlist.
-- No shell interpolation - args are passed directly to `exec.CommandContext`.
 
 **Exit criteria:** unit tests prove the enforcer rejects every item in the "Blocked" list from `requirement.md`, accepts the allowed list, and that bypassing the route layer still hits the enforcer (because `operations.go` calls it directly).
 
@@ -151,7 +143,7 @@ Define the structured tools and execution entrypoints. Each tool:
 - Has a JSON-schema input matching backend operation contracts.
 - Calls backend API routes; backend guardrails remain the enforcement boundary.
 
-Read tools (planner-only): `list_deployments`, `get_deployment`, `list_pods`, `list_events`, `tail_logs`, `terraform_plan`, `terraform_show`, `terraform_state`, `terraform_output`.
+Read tools (planner-only): `list_deployments`, `get_deployment`, `list_pods`, `list_events`, `tail_logs`.
 
 Write tools (guardrailed; planner proposals only, executed by orchestrator/backend path): `scale_deployment`, `rollout_restart`, `pause_rollout`, `resume_rollout`, `rollback_deployment`, `update_env`.
 
@@ -197,7 +189,6 @@ Write tools (guardrailed; planner proposals only, executed by orchestrator/backe
 ### 5.3 Pages
 - `ChatPage.tsx`: chat UI, SSE consumption, message bubbles, tool-call traces, validator decisions rendered as chips (approved / denied / reason).
 - `ClusterPage.tsx`: list of deployments + per-deployment panel (replicas, status, recent events, pod list, log tail).
-- `TerraformPage.tsx`: raw `plan` output, module outputs.
 
 ### 5.4 Shared components
 - `DeploymentCard`, `EventStream`, `LogViewer`, `OperationResultBanner`, `GuardrailBadge`.
@@ -294,6 +285,11 @@ Phase 1 (infra) --+
 
 - **The guardrail enforcer is the single source of truth for what can mutate.** Agents propose; the enforcer decides.
 - **Both agents are replaceable.** Remove the LLM and the HTTP API still enforces the same rules.
-- **Terraform is read-only from the running system.** `apply` and `destroy` only happen from a developer's shell via `make`.
 - **Secrets are never read or written by the agent path.** Not by tools, not by env updates, not by logs.
 - **Every denied action is observable.** Denials are logged and surfaced in the UI, never silently dropped.
+
+
+
+
+
+

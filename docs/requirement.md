@@ -34,7 +34,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
   - Input validation (resource names, namespaces, replica bounds)
   - Policy checks (e.g., max replicas, namespace restrictions)
   - Rejection of disallowed or unsafe operations
-- Executes validated actions via the Kubernetes API or Terraform CLI (read-only)
+- Executes validated actions via the Kubernetes API
 
 **Kubernetes Control Surface:**
 - Exposes a constrained set of mutation operations on:
@@ -44,7 +44,6 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 **Infrastructure Layer (Terraform):**
 - Provisions the EKS cluster and networking (VPC, node groups)
 - Maintains remote state with locking (S3 bucket + native S3 conditional-write locking)
-- Supports drift detection via `terraform plan` (read-only)
 
 ### Execution Model
 
@@ -59,7 +58,6 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - Guardrailed execution of infrastructure operations (scale, rollout restart, pause/resume rollout, rollback, env update)
 - Two-agent architecture (planner + validator) using the Claude Agent SDK
 - Backend-enforced safety constraints independent of LLM behavior
-- Read-only Terraform integration (`plan`, `show`, `state`, `output`)
 - Single-cluster EKS control plane
 
 ### Out of Scope
@@ -80,11 +78,8 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - Pause/resume rollout
 - Roll back deployments
 - Update environment variables (guardrailed)
-- Run `terraform plan`
-- Run Terraform read operations (`show`, `state`, `output`)
 
 **Blocked:**
-- `terraform apply` / `terraform destroy`
 - Delete namespaces, PVCs, or deployments
 - Modify or read Secrets
 - Modify RBAC
@@ -98,7 +93,6 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - The backend correctly enforces guardrails and rejects unsafe or disallowed operations
 - The Validator Agent is invoked for all write operations before execution
 - The dashboard reflects live cluster state and operation results
-- Terraform drift can be inspected via `terraform plan` (read-only)
 - `make destroy` tears everything down cleanly without orphaned resources
 - Comprehensive test coverage and evaluations
 
@@ -107,5 +101,9 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - Production-grade security hardening (focus is on guardrail design, not full security compliance)
 - Multi-tenancy or fine-grained user access control
 - Cost optimization beyond basic teardown
+
+
+
+
 
 
