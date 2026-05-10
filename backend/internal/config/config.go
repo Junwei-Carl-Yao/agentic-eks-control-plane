@@ -14,7 +14,7 @@ type Settings struct {
 func Load() Settings {
 	return Settings{
 		Kubeconfig:  getenv("KUBECONFIG", ""),
-		AWSRegion:   getenv("AWS_REGION", "us-west-2"),
+		AWSRegion:   getenv("AWS_REGION", "us-east-1"),
 		CORSOrigins: splitCSV(getenv("CORS_ORIGINS", "http://localhost:5173")),
 	}
 }

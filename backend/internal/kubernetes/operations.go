@@ -9,7 +9,6 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -101,25 +100,25 @@ func (client *Client) Rollback(ctx context.Context, namespace, name string, revi
 	return nil
 }
 
-// UpdateEnv merges the env map into the named container. Pre-existing keys not
-// in the map remain untouched, and envFrom (configmap/secret refs) is never
-// reordered, deleted, or otherwise modified — that's a documented invariant.
-func (client *Client) UpdateEnv(ctx context.Context, namespace, name, container string, env map[string]string) error {
-	containerFound := false
-	if err := client.updateDeployment(ctx, namespace, name, func(deployment *appsv1.Deployment) {
-		for index := range deployment.Spec.Template.Spec.Containers {
-			containerSpec := &deployment.Spec.Template.Spec.Containers[index]
-			if containerSpec.Name != container {
-				continue
-			}
-			containerFound = true
-			containerSpec.Env = mergeEnv(containerSpec.Env, env)
+// UpdateFeatureFlag writes a single key into the named ConfigMap's data map.
+// Other keys, binaryData, and ConfigMaps the caller did not name are never
+// touched. The enforcer (Phase 3) restricts which (configmap, key) pairs are
+// allowed — this op trusts that gate.
+func (client *Client) UpdateFeatureFlag(ctx context.Context, namespace, configMap, key, value string) error {
+	configMapClient := client.kubernetesInterface.CoreV1().ConfigMaps(namespace)
+	current, err := configMapClient.Get(ctx, configMap, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("%w: configmap %s/%s", ErrNotFound, namespace, configMap)
 		}
-	}); err != nil {
-		return err
+		return fmt.Errorf("kubernetes: get configmap: %w", err)
 	}
-	if !containerFound {
-		return fmt.Errorf("kubernetes: update env: container %q not found in deployment %s/%s", container, namespace, name)
+	if current.Data == nil {
+		current.Data = map[string]string{}
+	}
+	current.Data[key] = value
+	if _, err := configMapClient.Update(ctx, current, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("kubernetes: update configmap: %w", err)
 	}
 	return nil
 }
@@ -218,31 +217,4 @@ func parseRevision(raw string) int64 {
 		return 0
 	}
 	return parsed
-}
-
-// mergeEnv overlays update on top of existing, preserving order of existing
-// keys. New keys in update are appended in deterministic (alphabetical) order
-// so the resulting Deployment object is stable across calls.
-func mergeEnv(existing []corev1.EnvVar, update map[string]string) []corev1.EnvVar {
-	seen := make(map[string]bool, len(existing))
-	merged := make([]corev1.EnvVar, 0, len(existing)+len(update))
-	for _, envVar := range existing {
-		if value, ok := update[envVar.Name]; ok {
-			merged = append(merged, corev1.EnvVar{Name: envVar.Name, Value: value})
-		} else {
-			merged = append(merged, envVar)
-		}
-		seen[envVar.Name] = true
-	}
-	newKeys := make([]string, 0, len(update))
-	for key := range update {
-		if !seen[key] {
-			newKeys = append(newKeys, key)
-		}
-	}
-	sort.Strings(newKeys)
-	for _, key := range newKeys {
-		merged = append(merged, corev1.EnvVar{Name: key, Value: update[key]})
-	}
-	return merged
 }

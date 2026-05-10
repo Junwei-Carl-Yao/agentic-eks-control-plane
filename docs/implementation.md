@@ -79,12 +79,18 @@ Step-by-step build order for the Agentic EKS Control Plane, derived from `requir
   - `list_pods(namespace, label_selector)`
   - `list_events(namespace)`
   - `tail_logs(namespace, pod, container, lines)`
+  - `list_services(namespace)`
+  - `list_ingresses(namespace)`
+  - `list_horizontal_pod_autoscalers(namespace)`
+  - `list_namespaces()`
+  - `list_nodes()` - returns node names only; no addresses, capacity, or labels.
+  - `list_replicasets(namespace)`
 - `operations.go` (each function takes a validated request, returns a typed result):
   - `scale(namespace, name, replicas)`
   - `rollout_restart(namespace, name)` - patch template annotation `kubectl.kubernetes.io/restartedAt`
   - `pause_rollout(namespace, name)` / `resume_rollout(namespace, name)`
   - `rollback(namespace, name, to_revision=None)`
-  - `update_env(namespace, name, container, env_map)` - only the vars declared in request body; never touches `envFrom` or secret refs.
+  - `update_feature_flag(namespace, configmap, key, value)` - updates a single key in the named ConfigMap's `data`. Other keys, `binaryData`, and ConfigMaps not on the feature-flag allowlist are untouched.
 
 ### 2.3 Typed models (`backend/internal/models/`)
 - `operations.go`: request/response structs for each mutation op (with explicit validation helpers).
@@ -101,31 +107,29 @@ Step-by-step build order for the Agentic EKS Control Plane, derived from `requir
 
 **Goal:** Make safety a property of the system, not of the agent. Establish the one policy-enforcing chokepoint every mutation must pass through, so the blast radius is bounded regardless of how a caller (human or LLM) asks.
 
-This is the **single execution boundary**. Every mutation path - whether called directly by the API or by an agent tool - must flow through here.
-
-### 3.1 Policy definitions (`backend/internal/guardrails/policies.go`)
-Declarative policy constants:
-- `ALLOWED_NAMESPACES`: explicit list; default deny (never `kube-system`, `kube-public`, `default`).
-- `MAX_REPLICAS` per namespace (e.g. `{"app": 10}`).
-- `BLOCKED_RESOURCES`: `Secret`, `Namespace`, `PersistentVolumeClaim`, `ClusterRole`, `ClusterRoleBinding`, `Role`, `RoleBinding`.
-- `BLOCKED_OPERATIONS`: `delete_namespace`, `delete_pvc`, `delete_deployment`, `exec`, `secret_read`, `secret_write`, `rbac_modify`, `node_modify`.
-- `ENV_VAR_DENYLIST`: keys that look like secrets (`*_SECRET`, `*_TOKEN`, `*_PASSWORD`, `*_KEY`) are rejected in `update_env`.
+### 3.1 Policy definitions
+- Constants (hardcoded in `backend/internal/guardrails/policy.go`)
+  - `AllowedNamespaces`: explicit list; an empty list is default-deny.
+  - `FeatureFlagConfigMap`: the single ConfigMap name `update_feature_flag` may write to. Any other ConfigMap is rejected.
+  - `FeatureFlagKeys`: ConfigMap keys that `update_feature_flag` may write to. Any other key is rejected.
+- Feature flags (read from `FeatureFlagConfigMap` at request time)
+  - `MAX_REPLICAS`: positive int.
 
 ### 3.2 Input validation (`backend/internal/guardrails/validation.go`)
 - DNS-1123 regex for resource names and namespaces.
-- Replica bounds check (non-negative, <= policy max).
-- Environment-variable key/value length and character checks.
-- Revision number must be a positive int.
+- Replica bounds check (positive, <= policy max).
+- Feature-flag key/value length and character checks.
+- Revision number must be a positive int and exist for the target deployment.
 
 ### 3.3 Enforcer (`backend/internal/guardrails/enforcer.go`)
 - `func Enforce(action Action) (EnforcementResult, error)`
   - Step 1: schema-validate the action via typed Go validators.
   - Step 2: run policy checks.
-  - Step 3: return `Allow`, `Deny(reason)`, or `RequireValidator` (for ambiguous cases).
-- All mutation route handlers call `enforce(action)` first and short-circuit on deny.
-- Enforcer emits a structured audit log entry regardless of outcome.
+  - Step 3: return `Allow` or `Deny(reason)`.
+- All route handlers call `enforce(action)` first and short-circuit on deny.
+- Enforcer emits a structured audit log entry regardless of outcome in API response body.
 
-**Exit criteria:** unit tests prove the enforcer rejects every item in the "Blocked" list from `requirement.md`, accepts the allowed list, and that bypassing the route layer still hits the enforcer (because `operations.go` calls it directly).
+**Exit criteria:** `.\scripts\validate-backend-local-k8s.ps1` successfully passes against a local kind cluster with additional guardrail checks.
 
 ---
 
@@ -143,9 +147,9 @@ Define the structured tools and execution entrypoints. Each tool:
 - Has a JSON-schema input matching backend operation contracts.
 - Calls backend API routes; backend guardrails remain the enforcement boundary.
 
-Read tools (planner-only): `list_deployments`, `get_deployment`, `list_pods`, `list_events`, `tail_logs`.
+Read tools (planner-only): `list_deployments`, `get_deployment`, `list_pods`, `list_events`, `tail_logs`, `list_services`, `list_ingresses`, `list_horizontal_pod_autoscalers`, `list_namespaces`, `list_nodes`, `list_configmaps`, `list_replicasets`.
 
-Write tools (guardrailed; planner proposals only, executed by orchestrator/backend path): `scale_deployment`, `rollout_restart`, `pause_rollout`, `resume_rollout`, `rollback_deployment`, `update_env`.
+Write tools (guardrailed; planner proposals only, executed by orchestrator/backend path): `scale_deployment`, `rollout_restart`, `pause_rollout`, `resume_rollout`, `rollback_deployment`, `update_feature_flag`.
 
 ### 4.3 Prompts (`agent-runtime/internal/agents/prompts.go`)
 - `PLANNER_SYSTEM`: describes the cluster, available tools, blocked operations, and requires the planner to output a structured proposal before executing writes.

@@ -55,43 +55,23 @@ func podTemplateAnnotation(t *testing.T, client *Client, namespace, name, key st
 	return deployment.Spec.Template.Annotations[key]
 }
 
-func containerEnv(t *testing.T, client *Client, namespace, name, container string) map[string]string {
+func configMapData(t *testing.T, client *Client, namespace, name string) map[string]string {
 	t.Helper()
-	deployment, err := client.kubernetesInterface.AppsV1().Deployments(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	configMap, err := client.kubernetesInterface.CoreV1().ConfigMaps(namespace).Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("get deployment: %v", err)
+		t.Fatalf("get configmap: %v", err)
 	}
-	for _, containerSpec := range deployment.Spec.Template.Spec.Containers {
-		if containerSpec.Name != container {
-			continue
-		}
-		envMap := make(map[string]string, len(containerSpec.Env))
-		for _, envVar := range containerSpec.Env {
-			envMap[envVar.Name] = envVar.Value
-		}
-		return envMap
-	}
-	t.Fatalf("container %q not found", container)
-	return nil
+	return configMap.Data
 }
 
-func hasEnvFrom(t *testing.T, client *Client, namespace, name, container, configMap string) bool {
+func configMapHasBinaryDataKey(t *testing.T, client *Client, namespace, name, key string) bool {
 	t.Helper()
-	deployment, err := client.kubernetesInterface.AppsV1().Deployments(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	configMap, err := client.kubernetesInterface.CoreV1().ConfigMaps(namespace).Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("get deployment: %v", err)
+		t.Fatalf("get configmap: %v", err)
 	}
-	for _, containerSpec := range deployment.Spec.Template.Spec.Containers {
-		if containerSpec.Name != container {
-			continue
-		}
-		for _, envFromSource := range containerSpec.EnvFrom {
-			if envFromSource.ConfigMapRef != nil && envFromSource.ConfigMapRef.Name == configMap {
-				return true
-			}
-		}
-	}
-	return false
+	_, ok := configMap.BinaryData[key]
+	return ok
 }
 
 func descending(events []Event) bool {

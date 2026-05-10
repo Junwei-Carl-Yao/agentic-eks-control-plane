@@ -13,7 +13,9 @@
       "Bash(go version *)",
       "Bash(go mod *)",
       "Bash(go vet *)",
-      "Bash(gofmt *)"
+      "Bash(gofmt *)",
+      "PowerShell(go test *)",
+      "Bash(go clean *)"
     ]
   }
 }

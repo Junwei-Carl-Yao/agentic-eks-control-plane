@@ -55,21 +55,26 @@ func TestRolloutRestartRequest_RequiresNamespaceAndName(t *testing.T) {
 	}
 }
 
-// Scenario: update-env needs container name. Without it, the operation is ambiguous
-// in multi-container pods.
-func TestUpdateEnvRequest_RequiresContainer(t *testing.T) {
-	updateEnvRequest := UpdateEnvRequest{Namespace: "app", Name: "web", Container: "", Env: map[string]string{"X": "y"}}
-	if err := updateEnvRequest.Validate(); err == nil {
-		t.Error("expected validation error for empty container")
+// Scenario: update-feature-flag needs configmap + key. Namespace and key are
+// required because the operation must unambiguously identify exactly one cell
+// in the ConfigMap data map.
+func TestUpdateFeatureFlagRequest_RequiresConfigMapAndKey(t *testing.T) {
+	for _, updateFeatureFlagRequest := range []UpdateFeatureFlagRequest{
+		{Namespace: "", ConfigMap: "app-flags", Key: "K"},
+		{Namespace: "app", ConfigMap: "", Key: "K"},
+		{Namespace: "app", ConfigMap: "app-flags", Key: ""},
+	} {
+		if err := updateFeatureFlagRequest.Validate(); err == nil {
+			t.Errorf("expected error for %+v", updateFeatureFlagRequest)
+		}
 	}
 }
 
-// Scenario: empty env map → reject. A no-op request is almost always a client bug;
-// failing closed surfaces it instead of silently doing nothing.
-func TestUpdateEnvRequest_RejectsEmptyEnv(t *testing.T) {
-	updateEnvRequest := UpdateEnvRequest{Namespace: "app", Name: "web", Container: "app", Env: nil}
-	if err := updateEnvRequest.Validate(); err == nil {
-		t.Error("expected validation error for empty env map")
+// Scenario: empty value is allowed (clearing a flag is a legitimate write).
+func TestUpdateFeatureFlagRequest_AllowsEmptyValue(t *testing.T) {
+	updateFeatureFlagRequest := UpdateFeatureFlagRequest{Namespace: "app", ConfigMap: "app-flags", Key: "K", Value: ""}
+	if err := updateFeatureFlagRequest.Validate(); err != nil {
+		t.Errorf("Validate: %v", err)
 	}
 }
 

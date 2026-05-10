@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"eks-control-plane/backend/internal/config"
+	"eks-control-plane/backend/internal/guardrails"
 	"eks-control-plane/backend/internal/kubernetes"
 )
 
@@ -20,6 +22,13 @@ type stubReads struct {
 	deployments []Deployment
 	deployment  *Deployment
 	events      []Event
+	services    []Service
+	ingresses   []Ingress
+	hpas        []HorizontalPodAutoscaler
+	namespaces  []Namespace
+	nodes       []Node
+	featureFlag map[string]string
+	replicaSets []ReplicaSet
 	notFound    bool
 
 	lastPodSelector  string
@@ -58,6 +67,37 @@ func (stub *stubReads) TailLogs(_ context.Context, _, pod, container string, lin
 	return "", nil
 }
 
+func (stub *stubReads) ListServices(_ context.Context, _ string) ([]Service, error) {
+	return stub.services, nil
+}
+
+func (stub *stubReads) ListIngresses(_ context.Context, _ string) ([]Ingress, error) {
+	return stub.ingresses, nil
+}
+
+func (stub *stubReads) ListHorizontalPodAutoscalers(_ context.Context, _ string) ([]HorizontalPodAutoscaler, error) {
+	return stub.hpas, nil
+}
+
+func (stub *stubReads) ListNamespaces(_ context.Context) ([]Namespace, error) {
+	return stub.namespaces, nil
+}
+
+func (stub *stubReads) ListNodes(_ context.Context) ([]Node, error) {
+	return stub.nodes, nil
+}
+
+func (stub *stubReads) GetFeatureFlags(_ context.Context, namespace, name string) (map[string]string, error) {
+	if stub.notFound || stub.featureFlag == nil {
+		return nil, fmt.Errorf("%w: configmap %s/%s", kubernetes.ErrNotFound, namespace, name)
+	}
+	return stub.featureFlag, nil
+}
+
+func (stub *stubReads) ListReplicaSets(_ context.Context, _ string) ([]ReplicaSet, error) {
+	return stub.replicaSets, nil
+}
+
 // stubOps is the Operations test double. All call recording is on a pointer
 // receiver, so tests must use `&stubOps{}` to read back fields.
 type stubOps struct {
@@ -67,7 +107,9 @@ type stubOps struct {
 	paused               bool
 	resumed              bool
 	lastRollbackRevision int64
-	lastEnv              map[string]string
+	lastFlagConfigMap    string
+	lastFlagKey          string
+	lastFlagValue        string
 	notFound             bool
 }
 
@@ -119,22 +161,50 @@ func (stub *stubOps) Rollback(_ context.Context, namespace, name string, revisio
 	return nil
 }
 
-func (stub *stubOps) UpdateEnv(_ context.Context, namespace, name, _ string, env map[string]string) error {
-	if err := stub.maybeNotFound(namespace, name); err != nil {
+func (stub *stubOps) UpdateFeatureFlag(_ context.Context, namespace, configMap, key, value string) error {
+	if err := stub.maybeNotFound(namespace, configMap); err != nil {
 		return err
 	}
-	stub.lastEnv = env
+	stub.lastFlagConfigMap = configMap
+	stub.lastFlagKey = key
+	stub.lastFlagValue = value
 	return nil
 }
 
 // --- handler builders ---
 
+// testPolicy is the policy server tests assume: namespace "app", feature-flag
+// key "FOO". It's deliberately different from DefaultPolicy — server tests
+// scope their world locally instead of mutating exported package state.
+func testPolicy() guardrails.Policy {
+	return guardrails.Policy{
+		AllowedNamespaces: []string{"app"},
+		FeatureFlagKeys:   []string{"FOO"},
+	}
+}
+
+// permissiveEnforcer returns an Enforcer wired to testPolicy and a generous
+// MAX_REPLICAS flag. Use this when a test is asserting plumbing, not policy.
+func permissiveEnforcer() *guardrails.Enforcer {
+	return guardrails.New(testPolicy(),
+		func() (map[string]string, error) { return map[string]string{"MAX_REPLICAS": "10"}, nil },
+		slog.Default())
+}
+
 func newTestHandlerWithReads(reader any) http.Handler {
-	return New(config.Settings{}, Deps{Reader: toReader(reader)})
+	return New(config.Settings{}, Deps{Reader: toReader(reader), Enforcer: permissiveEnforcer()})
+}
+
+func newTestHandlerWithReadsAndEnforcer(reader any, enforcer *guardrails.Enforcer) http.Handler {
+	return New(config.Settings{}, Deps{Reader: toReader(reader), Enforcer: enforcer})
 }
 
 func newTestHandlerWithOps(ops *stubOps) http.Handler {
-	return New(config.Settings{}, Deps{Ops: ops})
+	return New(config.Settings{}, Deps{Ops: ops, Enforcer: permissiveEnforcer()})
+}
+
+func newTestHandlerWithOpsAndEnforcer(ops *stubOps, enforcer *guardrails.Enforcer) http.Handler {
+	return New(config.Settings{}, Deps{Ops: ops, Enforcer: enforcer})
 }
 
 // toReader normalises stubReads / *stubReads to a ClusterReader. Value-form
