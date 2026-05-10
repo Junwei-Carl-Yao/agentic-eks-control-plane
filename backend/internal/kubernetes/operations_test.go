@@ -117,40 +117,54 @@ func TestRollback_IgnoresReplicaSetsFromOtherDeployments(t *testing.T) {
 	}
 }
 
-// Scenario: UpdateEnv merges only the keys in the request. Pre-existing env vars
-// not mentioned in the request remain untouched.
-func TestUpdateEnv_OnlyTouchesDeclaredKeys(t *testing.T) {
-	kubeClient := newFakeClient(t, withContainerEnv("app", "web", "app",
+// Scenario: UpdateFeatureFlag writes a single key into the named ConfigMap's
+// data map and leaves the other keys alone. The implementation §2.2 guarantee
+// is "single key … other keys, binaryData … untouched"; we cover keys here
+// and binaryData below.
+func TestUpdateFeatureFlag_OnlyTouchesNamedKey(t *testing.T) {
+	kubeClient := newFakeClient(t, withConfigMap("app", "app-flags",
 		map[string]string{"KEEP": "yes", "REPLACE": "old"}))
-	err := kubeClient.UpdateEnv(context.Background(), "app", "web", "app",
-		map[string]string{"REPLACE": "new", "ADD": "v"})
-	if err != nil {
-		t.Fatalf("UpdateEnv: %v", err)
+	if err := kubeClient.UpdateFeatureFlag(context.Background(), "app", "app-flags", "REPLACE", "new"); err != nil {
+		t.Fatalf("UpdateFeatureFlag: %v", err)
 	}
-	mergedEnv := containerEnv(t, kubeClient, "app", "web", "app")
-	if mergedEnv["KEEP"] != "yes" || mergedEnv["REPLACE"] != "new" || mergedEnv["ADD"] != "v" {
-		t.Errorf("env = %v, want KEEP=yes REPLACE=new ADD=v", mergedEnv)
+	updatedData := configMapData(t, kubeClient, "app", "app-flags")
+	if updatedData["KEEP"] != "yes" || updatedData["REPLACE"] != "new" {
+		t.Errorf("data = %v, want KEEP=yes REPLACE=new", updatedData)
 	}
 }
 
-// Scenario: container has envFrom (configmap/secret refs). UpdateEnv must not delete,
-// reorder, or otherwise touch envFrom — it's a documented invariant in
-// implementation.md §2.2 ("never touches envFrom or secret refs").
-func TestUpdateEnv_LeavesEnvFromUntouched(t *testing.T) {
-	kubeClient := newFakeClient(t, withEnvFrom("app", "web", "app", "shared-config"))
-	if err := kubeClient.UpdateEnv(context.Background(), "app", "web", "app",
-		map[string]string{"FOO": "bar"}); err != nil {
-		t.Fatalf("UpdateEnv: %v", err)
+// Scenario: ConfigMap has binaryData. UpdateFeatureFlag must not delete,
+// reorder, or otherwise touch binaryData — implementation §2.2 invariant.
+func TestUpdateFeatureFlag_LeavesBinaryDataUntouched(t *testing.T) {
+	kubeClient := newFakeClient(t,
+		withConfigMapBinaryData("app", "app-flags", map[string][]byte{"cert.pem": []byte("payload")}))
+	if err := kubeClient.UpdateFeatureFlag(context.Background(), "app", "app-flags", "FOO", "bar"); err != nil {
+		t.Fatalf("UpdateFeatureFlag: %v", err)
 	}
-	if !hasEnvFrom(t, kubeClient, "app", "web", "app", "shared-config") {
-		t.Error("envFrom shared-config was modified or removed")
+	if !configMapHasBinaryDataKey(t, kubeClient, "app", "app-flags", "cert.pem") {
+		t.Error("binaryData cert.pem was modified or removed")
 	}
 }
 
-func TestUpdateEnv_MissingContainerReturnsError(t *testing.T) {
-	kubeClient := newFakeClient(t, withDeployments("app", "web"))
-	if err := kubeClient.UpdateEnv(context.Background(), "app", "web", "sidecar", map[string]string{"FOO": "bar"}); err == nil {
-		t.Fatal("UpdateEnv with missing container: expected error, got nil")
+// Scenario: ConfigMap has no Data map yet (only binaryData or empty). The op
+// should still write the key without panicking on a nil map.
+func TestUpdateFeatureFlag_InitializesEmptyData(t *testing.T) {
+	kubeClient := newFakeClient(t, withConfigMap("app", "app-flags", nil))
+	if err := kubeClient.UpdateFeatureFlag(context.Background(), "app", "app-flags", "NEW", "v"); err != nil {
+		t.Fatalf("UpdateFeatureFlag: %v", err)
+	}
+	if value := configMapData(t, kubeClient, "app", "app-flags")["NEW"]; value != "v" {
+		t.Errorf("NEW = %q, want v", value)
+	}
+}
+
+// Scenario: ConfigMap doesn't exist → IsNotFound, so the route layer can map
+// to 404 instead of returning a generic 500.
+func TestUpdateFeatureFlag_MissingConfigMapNotFound(t *testing.T) {
+	kubeClient := newFakeClient(t)
+	err := kubeClient.UpdateFeatureFlag(context.Background(), "app", "ghost", "FOO", "bar")
+	if !IsNotFound(err) {
+		t.Errorf("err = %v, want IsNotFound", err)
 	}
 }
 

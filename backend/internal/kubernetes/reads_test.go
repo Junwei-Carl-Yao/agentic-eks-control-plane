@@ -111,3 +111,94 @@ func TestTailLogs_SelectsNamedContainer(t *testing.T) {
 		t.Errorf("got %q, want sidecar-out", sidecarLogs)
 	}
 }
+
+// Scenario: services seeded → ListServices returns them with port + clusterIP.
+func TestListServices_ReturnsServices(t *testing.T) {
+	kubeClient := newFakeClient(t, withService("app", "web", 80))
+	services, err := kubeClient.ListServices(context.Background(), "app")
+	if err != nil || len(services) != 1 {
+		t.Fatalf("ListServices: (%v, %v)", services, err)
+	}
+	if services[0].Name != "web" || services[0].ClusterIP != "10.0.0.1" || len(services[0].Ports) != 1 || services[0].Ports[0].Port != 80 {
+		t.Errorf("unexpected service shape: %+v", services[0])
+	}
+}
+
+// Scenario: ingresses seeded → ListIngresses returns Hosts collapsed from rules.
+func TestListIngresses_CollapsesHosts(t *testing.T) {
+	kubeClient := newFakeClient(t, withIngress("app", "web", "example.com"))
+	ingresses, err := kubeClient.ListIngresses(context.Background(), "app")
+	if err != nil || len(ingresses) != 1 {
+		t.Fatalf("ListIngresses: (%v, %v)", ingresses, err)
+	}
+	if ingresses[0].Name != "web" || len(ingresses[0].Hosts) != 1 || ingresses[0].Hosts[0] != "example.com" {
+		t.Errorf("unexpected ingress shape: %+v", ingresses[0])
+	}
+}
+
+// Scenario: HPAs seeded → ListHorizontalPodAutoscalers returns min/max + target.
+func TestListHorizontalPodAutoscalers_ReturnsBounds(t *testing.T) {
+	kubeClient := newFakeClient(t, withHorizontalPodAutoscaler("app", "web-hpa", "web", 1, 5))
+	hpas, err := kubeClient.ListHorizontalPodAutoscalers(context.Background(), "app")
+	if err != nil || len(hpas) != 1 {
+		t.Fatalf("ListHorizontalPodAutoscalers: (%v, %v)", hpas, err)
+	}
+	if hpas[0].MinReplicas != 1 || hpas[0].MaxReplicas != 5 || hpas[0].TargetRef != "Deployment/web" {
+		t.Errorf("unexpected hpa shape: %+v", hpas[0])
+	}
+}
+
+// Scenario: namespaces seeded → ListNamespaces returns them with phase populated.
+func TestListNamespaces_ReturnsAll(t *testing.T) {
+	kubeClient := newFakeClient(t, withNamespace("app"), withNamespace("api"))
+	namespaces, err := kubeClient.ListNamespaces(context.Background())
+	if err != nil || len(namespaces) != 2 {
+		t.Fatalf("ListNamespaces: (%v, %v)", namespaces, err)
+	}
+}
+
+// Scenario: nodes seeded → ListNodes returns names only. The Phase 2.2 contract
+// says we never expose addresses/capacity/labels — guard the contract here so
+// a future refactor doesn't accidentally widen the projection.
+func TestListNodes_ReturnsNamesOnly(t *testing.T) {
+	kubeClient := newFakeClient(t, withNode("ip-10-0-0-1"), withNode("ip-10-0-0-2"))
+	nodes, err := kubeClient.ListNodes(context.Background())
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("ListNodes: (%v, %v)", nodes, err)
+	}
+	if nodes[0].Name == "" || nodes[1].Name == "" {
+		t.Errorf("nodes missing names: %+v", nodes)
+	}
+}
+
+// Scenario: feature-flag ConfigMap seeded → GetFeatureFlags returns its data
+// map. The kubernetes layer is a generic getter; the policy that there is
+// only one allowed ConfigMap lives at the guardrails layer.
+func TestGetFeatureFlags_ReturnsData(t *testing.T) {
+	kubeClient := newFakeClient(t, withConfigMap("app", "app-flags", map[string]string{"FOO": "1"}))
+	data, err := kubeClient.GetFeatureFlags(context.Background(), "app", "app-flags")
+	if err != nil {
+		t.Fatalf("GetFeatureFlags: %v", err)
+	}
+	if data["FOO"] != "1" {
+		t.Errorf("data = %v, want FOO=1", data)
+	}
+}
+
+// Scenario: replicasets seeded with revision history → ListReplicaSets returns
+// each RS's revision and its owning Deployment's name.
+func TestListReplicaSets_CarriesRevisionAndOwner(t *testing.T) {
+	kubeClient := newFakeClient(t, withRevisionHistory("app", "web", []int64{1, 2}))
+	replicaSets, err := kubeClient.ListReplicaSets(context.Background(), "app")
+	if err != nil || len(replicaSets) != 2 {
+		t.Fatalf("ListReplicaSets: (%v, %v)", replicaSets, err)
+	}
+	for _, replicaSet := range replicaSets {
+		if replicaSet.Owner != "web" {
+			t.Errorf("rs %q owner = %q, want web", replicaSet.Name, replicaSet.Owner)
+		}
+		if replicaSet.Revision != 1 && replicaSet.Revision != 2 {
+			t.Errorf("rs %q revision = %d, want 1 or 2", replicaSet.Name, replicaSet.Revision)
+		}
+	}
+}

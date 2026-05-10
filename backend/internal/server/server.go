@@ -22,10 +22,16 @@ func New(settings config.Settings, deps ...Deps) http.Handler {
 		resolved = deps[0]
 	}
 	if resolved.Reader != nil {
-		mountClusterRoutes(serveMux, resolved.Reader)
+		if resolved.Enforcer == nil {
+			panic("server: Deps.Reader requires Deps.Enforcer; reads may not be exposed without a guardrail chokepoint")
+		}
+		mountClusterRoutes(serveMux, resolved.Reader, resolved.Enforcer)
 	}
 	if resolved.Ops != nil {
-		mountOperationRoutes(serveMux, resolved.Ops)
+		if resolved.Enforcer == nil {
+			panic("server: Deps.Ops requires Deps.Enforcer; mutations may not be exposed without a guardrail chokepoint")
+		}
+		mountOperationRoutes(serveMux, resolved.Ops, resolved.Enforcer)
 	}
 	return cors(settings.CORSOrigins)(serveMux)
 }

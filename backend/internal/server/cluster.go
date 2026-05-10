@@ -5,25 +5,39 @@ import (
 	"net/http"
 	"strconv"
 
+	"eks-control-plane/backend/internal/guardrails"
 	"eks-control-plane/backend/internal/kubernetes"
 )
 
 // mountClusterRoutes wires the read-only cluster GETs onto the supplied serveMux.
-// Method-prefixed patterns rely on Go 1.22+ ServeMux semantics: a registered
-// path with the wrong method returns 405 automatically.
-func mountClusterRoutes(serveMux *http.ServeMux, reader ClusterReader) {
-	serveMux.HandleFunc("GET /api/cluster/deployments", listDeploymentsHandler(reader))
-	serveMux.HandleFunc("GET /api/cluster/deployments/{name}", getDeploymentHandler(reader))
-	serveMux.HandleFunc("GET /api/cluster/pods", listPodsHandler(reader))
-	serveMux.HandleFunc("GET /api/cluster/events", listEventsHandler(reader))
-	serveMux.HandleFunc("GET /api/cluster/logs", tailLogsHandler(reader))
+// Every namespaced read runs the same pipeline as a mutation: structural query
+// parsing → guardrail Enforce → reader dispatch. ListNamespaces is the one
+// route that does not deny — it narrows the cluster-wide list down to the
+// allowlist. ListNodes is unguarded; the reads layer already returns names
+// only and nothing else.
+func mountClusterRoutes(serveMux *http.ServeMux, reader ClusterReader, enforcer *guardrails.Enforcer) {
+	serveMux.HandleFunc("GET /api/cluster/deployments", listDeploymentsHandler(reader, enforcer))
+	serveMux.HandleFunc("GET /api/cluster/deployments/{name}", getDeploymentHandler(reader, enforcer))
+	serveMux.HandleFunc("GET /api/cluster/pods", listPodsHandler(reader, enforcer))
+	serveMux.HandleFunc("GET /api/cluster/events", listEventsHandler(reader, enforcer))
+	serveMux.HandleFunc("GET /api/cluster/logs", tailLogsHandler(reader, enforcer))
+	serveMux.HandleFunc("GET /api/cluster/services", listServicesHandler(reader, enforcer))
+	serveMux.HandleFunc("GET /api/cluster/ingresses", listIngressesHandler(reader, enforcer))
+	serveMux.HandleFunc("GET /api/cluster/hpas", listHPAsHandler(reader, enforcer))
+	serveMux.HandleFunc("GET /api/cluster/namespaces", listNamespacesHandler(reader, enforcer))
+	serveMux.HandleFunc("GET /api/cluster/nodes", listNodesHandler(reader))
+	serveMux.HandleFunc("GET /api/cluster/feature-flags", getFeatureFlagsHandler(reader, enforcer))
+	serveMux.HandleFunc("GET /api/cluster/replicasets", listReplicaSetsHandler(reader, enforcer))
 }
 
-func listDeploymentsHandler(reader ClusterReader) http.HandlerFunc {
+func listDeploymentsHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		namespace := request.URL.Query().Get("namespace")
 		if namespace == "" {
 			writeError(writer, http.StatusBadRequest, "namespace is required")
+			return
+		}
+		if !writeIfDenied(writer, enforcer.ListDeployments(namespace)) {
 			return
 		}
 		deployments, err := reader.ListDeployments(request.Context(), namespace)
@@ -35,7 +49,7 @@ func listDeploymentsHandler(reader ClusterReader) http.HandlerFunc {
 	}
 }
 
-func getDeploymentHandler(reader ClusterReader) http.HandlerFunc {
+func getDeploymentHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		namespace := request.URL.Query().Get("namespace")
 		if namespace == "" {
@@ -43,6 +57,9 @@ func getDeploymentHandler(reader ClusterReader) http.HandlerFunc {
 			return
 		}
 		name := request.PathValue("name")
+		if !writeIfDenied(writer, enforcer.GetDeployment(namespace, name)) {
+			return
+		}
 		deployment, err := reader.GetDeployment(request.Context(), namespace, name)
 		if err != nil {
 			writeClusterError(writer, err)
@@ -52,11 +69,14 @@ func getDeploymentHandler(reader ClusterReader) http.HandlerFunc {
 	}
 }
 
-func listPodsHandler(reader ClusterReader) http.HandlerFunc {
+func listPodsHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		namespace := request.URL.Query().Get("namespace")
 		if namespace == "" {
 			writeError(writer, http.StatusBadRequest, "namespace is required")
+			return
+		}
+		if !writeIfDenied(writer, enforcer.ListPods(namespace)) {
 			return
 		}
 		selector := request.URL.Query().Get("labelSelector")
@@ -69,11 +89,14 @@ func listPodsHandler(reader ClusterReader) http.HandlerFunc {
 	}
 }
 
-func listEventsHandler(reader ClusterReader) http.HandlerFunc {
+func listEventsHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		namespace := request.URL.Query().Get("namespace")
 		if namespace == "" {
 			writeError(writer, http.StatusBadRequest, "namespace is required")
+			return
+		}
+		if !writeIfDenied(writer, enforcer.ListEvents(namespace)) {
 			return
 		}
 		events, err := reader.ListEvents(request.Context(), namespace)
@@ -85,7 +108,7 @@ func listEventsHandler(reader ClusterReader) http.HandlerFunc {
 	}
 }
 
-func tailLogsHandler(reader ClusterReader) http.HandlerFunc {
+func tailLogsHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		query := request.URL.Query()
 		namespace := query.Get("namespace")
@@ -101,12 +124,147 @@ func tailLogsHandler(reader ClusterReader) http.HandlerFunc {
 			writeError(writer, http.StatusBadRequest, "lines must be a positive integer")
 			return
 		}
+		if !writeIfDenied(writer, enforcer.TailLogs(namespace, pod, container)) {
+			return
+		}
 		body, err := reader.TailLogs(request.Context(), namespace, pod, container, lines)
 		if err != nil {
 			writeClusterError(writer, err)
 			return
 		}
 		writeJSON(writer, http.StatusOK, map[string]string{"logs": body})
+	}
+}
+
+func listServicesHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		namespace := request.URL.Query().Get("namespace")
+		if namespace == "" {
+			writeError(writer, http.StatusBadRequest, "namespace is required")
+			return
+		}
+		if !writeIfDenied(writer, enforcer.ListServices(namespace)) {
+			return
+		}
+		services, err := reader.ListServices(request.Context(), namespace)
+		if err != nil {
+			writeClusterError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, services)
+	}
+}
+
+func listIngressesHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		namespace := request.URL.Query().Get("namespace")
+		if namespace == "" {
+			writeError(writer, http.StatusBadRequest, "namespace is required")
+			return
+		}
+		if !writeIfDenied(writer, enforcer.ListIngresses(namespace)) {
+			return
+		}
+		ingresses, err := reader.ListIngresses(request.Context(), namespace)
+		if err != nil {
+			writeClusterError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, ingresses)
+	}
+}
+
+func listHPAsHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		namespace := request.URL.Query().Get("namespace")
+		if namespace == "" {
+			writeError(writer, http.StatusBadRequest, "namespace is required")
+			return
+		}
+		if !writeIfDenied(writer, enforcer.ListHorizontalPodAutoscalers(namespace)) {
+			return
+		}
+		hpas, err := reader.ListHorizontalPodAutoscalers(request.Context(), namespace)
+		if err != nil {
+			writeClusterError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, hpas)
+	}
+}
+
+// listNamespacesHandler narrows the cluster-wide list down to the allowlist.
+// The route never denies — callers see only namespaces the Policy permits, so
+// the UI cannot accidentally pivot into one it isn't allowed to act on.
+func listNamespacesHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		namespaces, err := reader.ListNamespaces(request.Context())
+		if err != nil {
+			writeClusterError(writer, err)
+			return
+		}
+		allowed := make([]Namespace, 0, len(namespaces))
+		for _, namespace := range namespaces {
+			if enforcer.NamespaceAllowed(namespace.Name) {
+				allowed = append(allowed, namespace)
+			}
+		}
+		writeJSON(writer, http.StatusOK, allowed)
+	}
+}
+
+func listNodesHandler(reader ClusterReader) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		nodes, err := reader.ListNodes(request.Context())
+		if err != nil {
+			writeClusterError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, nodes)
+	}
+}
+
+// getFeatureFlagsHandler fetches the single allowlisted feature-flag ConfigMap
+// and narrows its data to keys on the FeatureFlagKeys allowlist. The ConfigMap
+// name is fixed by guardrails.FeatureFlagConfigMap — the route does not accept
+// it as a query parameter, since any other name would be denied by the
+// enforcer anyway.
+func getFeatureFlagsHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		namespace := request.URL.Query().Get("namespace")
+		if namespace == "" {
+			writeError(writer, http.StatusBadRequest, "namespace is required")
+			return
+		}
+		name := guardrails.FeatureFlagConfigMap
+		if !writeIfDenied(writer, enforcer.GetFeatureFlags(namespace, name)) {
+			return
+		}
+		data, err := reader.GetFeatureFlags(request.Context(), namespace, name)
+		if err != nil {
+			writeClusterError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, enforcer.FilterFeatureFlagData(data))
+	}
+}
+
+func listReplicaSetsHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		namespace := request.URL.Query().Get("namespace")
+		if namespace == "" {
+			writeError(writer, http.StatusBadRequest, "namespace is required")
+			return
+		}
+		if !writeIfDenied(writer, enforcer.ListReplicaSets(namespace)) {
+			return
+		}
+		replicaSets, err := reader.ListReplicaSets(request.Context(), namespace)
+		if err != nil {
+			writeClusterError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, replicaSets)
 	}
 }
 

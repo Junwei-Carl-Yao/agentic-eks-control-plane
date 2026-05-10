@@ -12,7 +12,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - **Backend:** Go + Kubernetes client
 - **Agent Runtime:** Claude Agent SDK
 - **Frontend:** React + Vite + TypeScript
-- **Deployment:** Helm, ALB Ingress Controller
+- **Deployment:** Helm, AWS Load Balancer Controller
 
 ## Scope
 
@@ -26,7 +26,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - Two-agent design:
   - **Planner Agent:** Interprets user intent and selects appropriate tools/actions
   - **Validator Agent:** Reviews proposed actions against safety constraints before execution
-- Uses structured tool interfaces (e.g., scale, rollout restart, pause/resume rollout, rollback, env update)
+- Uses structured tool interfaces (e.g., scale, rollout restart, pause/resume rollout, rollback, feature-flag update)
 
 **Guardrailed Execution Layer (Backend):**
 - Acts as the single execution boundary for all operations
@@ -38,8 +38,9 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 
 **Kubernetes Control Surface:**
 - Exposes a constrained set of mutation operations on:
-  - Deployments (scale, rollout restart, pause/resume rollout, rollback, env update)
-- Read capabilities (pods, events, logs) are available to support decision-making
+  - Deployments (scale, rollout restart, pause/resume rollout, rollback)
+  - ConfigMaps (feature-flag update on an allowlisted ConfigMap)
+- Read capabilities support decision-making across deployments, pods, events, logs, services, ingresses, horizontal pod autoscalers, namespaces, nodes (names only), configmaps, and replicasets
 
 **Infrastructure Layer (Terraform):**
 - Provisions the EKS cluster and networking (VPC, node groups)
@@ -55,7 +56,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 
 ### In Scope
 
-- Guardrailed execution of infrastructure operations (scale, rollout restart, pause/resume rollout, rollback, env update)
+- Guardrailed execution of infrastructure operations (scale, rollout restart, pause/resume rollout, rollback, feature-flag update)
 - Two-agent architecture (planner + validator) using the Claude Agent SDK
 - Backend-enforced safety constraints independent of LLM behavior
 - Single-cluster EKS control plane
@@ -70,14 +71,12 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 ## Agent Permissions
 
 **Allowed:**
-- Read cluster state
-- Read logs and events
-- Describe resources
-- List resources
+- Read cluster state (deployments, pods, events, logs, services, ingresses, horizontal pod autoscalers, namespaces, node names, configmaps, replicasets)
 - Scale deployments
+- Rollout restart deployments
 - Pause/resume rollout
 - Roll back deployments
-- Update environment variables (guardrailed)
+- Update a feature-flag key in an allowlisted ConfigMap (guardrailed)
 
 **Blocked:**
 - Delete namespaces, PVCs, or deployments

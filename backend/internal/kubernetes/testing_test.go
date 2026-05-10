@@ -11,7 +11,9 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -115,34 +117,94 @@ func withRevisionHistory(namespace, name string, revisions []int64) fakeOption {
 	}
 }
 
-// withContainerEnv seeds a deployment whose named container has the given env
-// vars (declared inline, not envFrom).
-func withContainerEnv(namespace, name, container string, env map[string]string) fakeOption {
+// withConfigMap seeds a ConfigMap with the given data.
+func withConfigMap(namespace, name string, data map[string]string) fakeOption {
 	return func(builder *fakeBuilder) {
-		deployment := makeDeployment(namespace, name, 1)
-		envVars := make([]corev1.EnvVar, 0, len(env))
-		for key, value := range env {
-			envVars = append(envVars, corev1.EnvVar{Name: key, Value: value})
+		copied := make(map[string]string, len(data))
+		for key, value := range data {
+			copied[key] = value
 		}
-		deployment.Spec.Template.Spec.Containers = []corev1.Container{{Name: container, Env: envVars}}
-		builder.objects = append(builder.objects, deployment)
+		builder.objects = append(builder.objects, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+			Data:       copied,
+		})
 	}
 }
 
-// withEnvFrom seeds a deployment whose named container references a configmap
-// via envFrom — used to assert UpdateEnv leaves it alone.
-func withEnvFrom(namespace, name, container, configMap string) fakeOption {
+// withConfigMapBinaryData seeds a ConfigMap that has binaryData but no data.
+// Used to assert UpdateFeatureFlag never touches binaryData.
+func withConfigMapBinaryData(namespace, name string, binaryData map[string][]byte) fakeOption {
 	return func(builder *fakeBuilder) {
-		deployment := makeDeployment(namespace, name, 1)
-		deployment.Spec.Template.Spec.Containers = []corev1.Container{{
-			Name: container,
-			EnvFrom: []corev1.EnvFromSource{{
-				ConfigMapRef: &corev1.ConfigMapEnvSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: configMap},
+		copied := make(map[string][]byte, len(binaryData))
+		for key, value := range binaryData {
+			copied[key] = append([]byte(nil), value...)
+		}
+		builder.objects = append(builder.objects, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+			BinaryData: copied,
+		})
+	}
+}
+
+// withService seeds a ClusterIP Service exposing one port.
+func withService(namespace, name string, port int32) fakeOption {
+	return func(builder *fakeBuilder) {
+		builder.objects = append(builder.objects, &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+			Spec: corev1.ServiceSpec{
+				Type:      corev1.ServiceTypeClusterIP,
+				ClusterIP: "10.0.0.1",
+				Ports:     []corev1.ServicePort{{Port: port, Protocol: corev1.ProtocolTCP}},
+			},
+		})
+	}
+}
+
+// withIngress seeds a single-host Ingress.
+func withIngress(namespace, name, host string) fakeOption {
+	return func(builder *fakeBuilder) {
+		builder.objects = append(builder.objects, &netv1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+			Spec:       netv1.IngressSpec{Rules: []netv1.IngressRule{{Host: host}}},
+		})
+	}
+}
+
+// withHorizontalPodAutoscaler seeds an HPA targeting a Deployment.
+func withHorizontalPodAutoscaler(namespace, name, target string, min, max int32) fakeOption {
+	return func(builder *fakeBuilder) {
+		minPtr := min
+		builder.objects = append(builder.objects, &autoscalingv2.HorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				MinReplicas: &minPtr,
+				MaxReplicas: max,
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: target,
 				},
-			}},
-		}}
-		builder.objects = append(builder.objects, deployment)
+			},
+		})
+	}
+}
+
+// withNamespace seeds a Namespace object.
+func withNamespace(name string) fakeOption {
+	return func(builder *fakeBuilder) {
+		builder.objects = append(builder.objects, &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Status:     corev1.NamespaceStatus{Phase: corev1.NamespaceActive},
+		})
+	}
+}
+
+// withNode seeds a Node — we never expose anything but the name, so the
+// fixture is intentionally bare.
+func withNode(name string) fakeOption {
+	return func(builder *fakeBuilder) {
+		builder.objects = append(builder.objects, &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+		})
 	}
 }
 

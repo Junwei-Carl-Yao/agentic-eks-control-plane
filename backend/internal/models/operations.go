@@ -48,27 +48,25 @@ func (request RolloutRestartRequest) Validate() error {
 type PauseRolloutRequest = RolloutRestartRequest
 type ResumeRolloutRequest = RolloutRestartRequest
 
-// UpdateEnvRequest merges env vars into a named container. envFrom is not in
-// the schema and is never touched.
-type UpdateEnvRequest struct {
-	Namespace string            `json:"namespace"`
-	Name      string            `json:"name"`
-	Container string            `json:"container"`
-	Env       map[string]string `json:"env"`
+// UpdateFeatureFlagRequest writes a single key into a named ConfigMap's data.
+// Other keys, binaryData, and ConfigMaps not on the enforcer's allowlist are
+// untouched.
+type UpdateFeatureFlagRequest struct {
+	Namespace string `json:"namespace"`
+	ConfigMap string `json:"configmap"`
+	Key       string `json:"key"`
+	Value     string `json:"value"`
 }
 
-func (request UpdateEnvRequest) Validate() error {
+func (request UpdateFeatureFlagRequest) Validate() error {
 	if request.Namespace == "" {
 		return errors.New("namespace is required")
 	}
-	if request.Name == "" {
-		return errors.New("name is required")
+	if request.ConfigMap == "" {
+		return errors.New("configmap is required")
 	}
-	if request.Container == "" {
-		return errors.New("container is required")
-	}
-	if len(request.Env) == 0 {
-		return errors.New("env must not be empty")
+	if request.Key == "" {
+		return errors.New("key is required")
 	}
 	return nil
 }
