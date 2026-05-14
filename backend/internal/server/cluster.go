@@ -26,7 +26,6 @@ func mountClusterRoutes(serveMux *http.ServeMux, reader ClusterReader, enforcer 
 	serveMux.HandleFunc("GET /api/cluster/hpas", listHPAsHandler(reader, enforcer))
 	serveMux.HandleFunc("GET /api/cluster/namespaces", listNamespacesHandler(reader, enforcer))
 	serveMux.HandleFunc("GET /api/cluster/nodes", listNodesHandler(reader))
-	serveMux.HandleFunc("GET /api/cluster/feature-flags", getFeatureFlagsHandler(reader, enforcer))
 	serveMux.HandleFunc("GET /api/cluster/replicasets", listReplicaSetsHandler(reader, enforcer))
 }
 
@@ -221,31 +220,6 @@ func listNodesHandler(reader ClusterReader) http.HandlerFunc {
 			return
 		}
 		writeJSON(writer, http.StatusOK, nodes)
-	}
-}
-
-// getFeatureFlagsHandler fetches the single allowlisted feature-flag ConfigMap
-// and narrows its data to keys on the FeatureFlagKeys allowlist. The ConfigMap
-// name is fixed by guardrails.FeatureFlagConfigMap — the route does not accept
-// it as a query parameter, since any other name would be denied by the
-// enforcer anyway.
-func getFeatureFlagsHandler(reader ClusterReader, enforcer *guardrails.Enforcer) http.HandlerFunc {
-	return func(writer http.ResponseWriter, request *http.Request) {
-		namespace := request.URL.Query().Get("namespace")
-		if namespace == "" {
-			writeError(writer, http.StatusBadRequest, "namespace is required")
-			return
-		}
-		name := guardrails.FeatureFlagConfigMap
-		if !writeIfDenied(writer, enforcer.GetFeatureFlags(namespace, name)) {
-			return
-		}
-		data, err := reader.GetFeatureFlags(request.Context(), namespace, name)
-		if err != nil {
-			writeClusterError(writer, err)
-			return
-		}
-		writeJSON(writer, http.StatusOK, enforcer.FilterFeatureFlagData(data))
 	}
 }
 

@@ -1,9 +1,7 @@
 package guardrails
 
 import (
-	"fmt"
 	"log/slog"
-	"strconv"
 
 	"eks-control-plane/backend/internal/models"
 )
@@ -18,29 +16,24 @@ type Decision struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
-// Enforcer is the single chokepoint. The flags closure resolves the current
-// feature-flag ConfigMap contents at request time, so changes take effect
-// without restarting the binary. Adding a new flag means adding a parser
-// method that consumes the same map; the constructor signature stays put.
+// Enforcer is the single chokepoint.
 type Enforcer struct {
 	policy Policy
-	flags  func() (map[string]string, error)
 	logger *slog.Logger
 }
 
-// New returns an Enforcer bound to the supplied Policy and feature-flag
-// loader. The Policy slices are copied defensively, so callers cannot widen
-// the safety boundary by mutating slices they passed in. A nil logger falls
-// back to the slog default so callers can omit it in tests.
-func New(policy Policy, flags func() (map[string]string, error), logger *slog.Logger) *Enforcer {
+// New returns an Enforcer bound to the supplied Policy. The Policy slices are
+// copied defensively, so callers cannot widen the safety boundary by mutating
+// slices they passed in. A nil logger falls back to the slog default so
+// callers can omit it in tests.
+func New(policy Policy, logger *slog.Logger) *Enforcer {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	sealed := Policy{
 		AllowedNamespaces: append([]string(nil), policy.AllowedNamespaces...),
-		FeatureFlagKeys:   append([]string(nil), policy.FeatureFlagKeys...),
 	}
-	return &Enforcer{policy: sealed, flags: flags, logger: logger}
+	return &Enforcer{policy: sealed, logger: logger}
 }
 
 // ListDeployments / ListPods / ListEvents / ListServices / ListIngresses /
@@ -82,40 +75,6 @@ func (enforcer *Enforcer) GetDeployment(namespace, name string) Decision {
 	return enforcer.namespaceAndNameRead("get-deployment", namespace, name)
 }
 
-// GetFeatureFlags is stricter than the other reads: only FeatureFlagConfigMap
-// may be fetched. Every other ConfigMap in the namespace is invisible to
-// callers — the binary is a feature-flag console, not a generic ConfigMap
-// browser.
-func (enforcer *Enforcer) GetFeatureFlags(namespace, name string) Decision {
-	subject := namespace + "/" + name
-	if reason := firstError(
-		validNamespace(namespace),
-		validFeatureFlagKey(name),
-		enforcer.namespaceCheck(namespace),
-	); reason != "" {
-		return enforcer.deny("get-feature-flags", subject, reason)
-	}
-	if !configMapAllowed(name) {
-		return enforcer.deny("get-feature-flags", subject,
-			"configmap "+name+" is not on the feature-flag allowlist")
-	}
-	return enforcer.allow("get-feature-flags", subject)
-}
-
-// FilterFeatureFlagData returns a new map containing only keys on the
-// FeatureFlagKeys allowlist. Used by the feature-flag read route to narrow
-// the returned data so non-flag keys (added directly to the ConfigMap,
-// perhaps by a platform team for unrelated reasons) never reach the caller.
-func (enforcer *Enforcer) FilterFeatureFlagData(data map[string]string) map[string]string {
-	filtered := make(map[string]string, len(enforcer.policy.FeatureFlagKeys))
-	for _, key := range enforcer.policy.FeatureFlagKeys {
-		if value, ok := data[key]; ok {
-			filtered[key] = value
-		}
-	}
-	return filtered
-}
-
 // TailLogs validates pod and container names too — both are surfaced as
 // path-like fragments to the kubernetes log stream API.
 func (enforcer *Enforcer) TailLogs(namespace, pod, container string) Decision {
@@ -139,9 +98,7 @@ func (enforcer *Enforcer) NamespaceAllowed(namespace string) bool {
 	return ok
 }
 
-// Scale enforces namespace allowlist + DNS-1123 + replica bounds. The replica
-// cap is read from the FeatureFlagConfigMap on every call so operators can
-// adjust MAX_REPLICAS without redeploying.
+// Scale enforces namespace allowlist + DNS-1123 + replica bounds.
 func (enforcer *Enforcer) Scale(request models.ScaleRequest) Decision {
 	subject := request.Namespace + "/" + request.Name
 	if reason := firstError(
@@ -151,11 +108,7 @@ func (enforcer *Enforcer) Scale(request models.ScaleRequest) Decision {
 	); reason != "" {
 		return enforcer.deny("scale", subject, reason)
 	}
-	maximum, err := enforcer.maxReplicas()
-	if err != nil {
-		return enforcer.deny("scale", subject, "MAX_REPLICAS unavailable: "+err.Error())
-	}
-	if err := validReplicas(request.Replicas, maximum); err != nil {
+	if err := validReplicas(request.Replicas, MaxReplicas); err != nil {
 		return enforcer.deny("scale", subject, err.Error())
 	}
 	return enforcer.allow("scale", subject)
@@ -185,30 +138,6 @@ func (enforcer *Enforcer) Rollback(request models.RollbackRequest) Decision {
 		return enforcer.deny("rollback", subject, reason)
 	}
 	return enforcer.allow("rollback", subject)
-}
-
-// UpdateFeatureFlag is the most policy-heavy action: namespace + DNS-1123 on
-// the ConfigMap name + the (configmap, key) allowlist + value length.
-func (enforcer *Enforcer) UpdateFeatureFlag(request models.UpdateFeatureFlagRequest) Decision {
-	subject := request.Namespace + "/" + request.ConfigMap + ":" + request.Key
-	if reason := firstError(
-		validNamespace(request.Namespace),
-		validResourceName(request.ConfigMap),
-		validFeatureFlagKey(request.Key),
-		validFeatureFlagValue(request.Value),
-		enforcer.namespaceCheck(request.Namespace),
-	); reason != "" {
-		return enforcer.deny("update-feature-flag", subject, reason)
-	}
-	if !configMapAllowed(request.ConfigMap) {
-		return enforcer.deny("update-feature-flag", subject,
-			"configmap "+request.ConfigMap+" is not on the feature-flag allowlist")
-	}
-	if !enforcer.policy.featureFlagKeyAllowed(request.Key) {
-		return enforcer.deny("update-feature-flag", subject,
-			"key "+request.Key+" is not on the feature-flag key allowlist")
-	}
-	return enforcer.allow("update-feature-flag", subject)
 }
 
 func (enforcer *Enforcer) enforceNamespaceRead(action, namespace string) Decision {
@@ -292,22 +221,3 @@ func (enforcer *Enforcer) namespaceCheck(namespace string) error {
 type errString string
 
 func (message errString) Error() string { return string(message) }
-
-// maxReplicas reads MAX_REPLICAS out of the live feature-flag map. Keeping
-// the parser on the Enforcer (rather than at the call site) means the
-// constructor signature does not grow when more flags are added.
-func (enforcer *Enforcer) maxReplicas() (int, error) {
-	data, err := enforcer.flags()
-	if err != nil {
-		return 0, err
-	}
-	raw, ok := data["MAX_REPLICAS"]
-	if !ok {
-		return 0, fmt.Errorf("MAX_REPLICAS not set in feature-flag ConfigMap")
-	}
-	value, err := strconv.Atoi(raw)
-	if err != nil || value <= 0 {
-		return 0, fmt.Errorf("invalid MAX_REPLICAS=%q", raw)
-	}
-	return value, nil
-}

@@ -8,16 +8,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Phase 3 policy is hardcoded in the backend (see internal/guardrails/policy.go).
-# Mirror the same literals here so this script seeds matching cluster state.
-# MAX_REPLICAS is sourced from the feature-flag ConfigMap at runtime, and is
-# the only key on the FeatureFlagKeys allowlist — the update-feature-flag
-# allow-path therefore writes to it directly. NonAllowlistedKey is seeded into
-# app-flags to prove the GetFeatureFlags route narrows its response.
-$FeatureFlagConfigMap = "app-flags"
-$FeatureFlagKey = "MAX_REPLICAS"
-$NonAllowlistedKey = "SECRET_TOKEN"
+# MaxReplicas is a compile-time constant (10); this script picks a target
+# strictly inside that bound and a deny target strictly above it.
 $MaxReplicasPolicy = 5
-$MaxReplicasUpdated = 8
+$OverMaxReplicas = 11
 
 function Assert-CommandExists {
     param([string]$Name)
@@ -167,13 +161,9 @@ try {
     Invoke-External -Command { (& kubectl -n $Namespace expose deployment demo-nginx --port=80 --target-port=80 --dry-run=client -o yaml) | & kubectl apply -f - | Out-Null } -ErrorMessage "Failed to expose deployment"
     Invoke-External -Command { kubectl -n $Namespace rollout status deployment/demo-nginx --timeout=120s | Out-Null } -ErrorMessage "Deployment did not roll out"
 
-    Write-Output "Seeding allowlisted ConfigMap '$FeatureFlagConfigMap' (with MAX_REPLICAS=$MaxReplicasPolicy and a non-allowlisted '$NonAllowlistedKey' to verify GetFeatureFlags narrowing) and a non-allowlisted ConfigMap for deny tests..."
-    Invoke-External -Command { (& kubectl -n $Namespace create configmap $FeatureFlagConfigMap --from-literal=MAX_REPLICAS=$MaxReplicasPolicy --from-literal=$NonAllowlistedKey=leak-me --dry-run=client -o yaml) | & kubectl apply -f - | Out-Null } -ErrorMessage "Failed to seed feature-flag ConfigMap"
-    Invoke-External -Command { (& kubectl -n $Namespace create configmap other-config --from-literal=anything=value --dry-run=client -o yaml) | & kubectl apply -f - | Out-Null } -ErrorMessage "Failed to seed non-allowlisted ConfigMap"
-
     New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
 
-    Write-Output "Starting backend (guardrail policy is hardcoded; MAX_REPLICAS sourced from $FeatureFlagConfigMap)..."
+    Write-Output "Starting backend (guardrail policy and MaxReplicas are hardcoded)..."
     Get-Process -Name "server" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     $env:KUBECONFIG = Join-Path $HOME ".kube\config"
     $backendProc = Start-Process -FilePath "go" -ArgumentList "run ./cmd/server" -WorkingDirectory $backendPath -WindowStyle Hidden -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
@@ -209,30 +199,22 @@ try {
     $scaleFile = Join-Path $tmpDir "scale.json"
     $pauseFile = Join-Path $tmpDir "pause.json"
     $rollbackFile = Join-Path $tmpDir "rollback.json"
-    $featureFlagFile = Join-Path $tmpDir "feature-flag.json"
 
     # Allow-path bodies.
     Set-Content -Path $scaleFile -Value (@{ namespace = $Namespace; name = "demo-nginx"; replicas = $MaxReplicasPolicy } | ConvertTo-Json -Compress) -NoNewline
     Set-Content -Path $pauseFile -Value (@{ namespace = $Namespace; name = "demo-nginx" } | ConvertTo-Json -Compress) -NoNewline
     Set-Content -Path $rollbackFile -Value (@{ namespace = $Namespace; name = "demo-nginx"; revision = 1 } | ConvertTo-Json -Compress) -NoNewline
-    Set-Content -Path $featureFlagFile -Value (@{ namespace = $Namespace; configmap = $FeatureFlagConfigMap; key = $FeatureFlagKey; value = [string]$MaxReplicasUpdated } | ConvertTo-Json -Compress) -NoNewline
 
     # Deny-path bodies. Each one targets a single guardrail rule so a regression
     # tells us exactly which check failed.
     $denyBlockedNamespaceFile = Join-Path $tmpDir "deny-blocked-namespace.json"
     $denyOtherNamespaceFile = Join-Path $tmpDir "deny-other-namespace.json"
     $denyOverMaxReplicasFile = Join-Path $tmpDir "deny-over-max.json"
-    $denyOtherConfigMapFile = Join-Path $tmpDir "deny-other-configmap.json"
-    $denyOtherKeyFile = Join-Path $tmpDir "deny-other-key.json"
     $denyInvalidNameFile = Join-Path $tmpDir "deny-invalid-name.json"
 
     Set-Content -Path $denyBlockedNamespaceFile -Value (@{ namespace = "kube-system"; name = "demo-nginx"; replicas = 1 } | ConvertTo-Json -Compress) -NoNewline
     Set-Content -Path $denyOtherNamespaceFile -Value (@{ namespace = "not-on-allowlist"; name = "demo-nginx"; replicas = 1 } | ConvertTo-Json -Compress) -NoNewline
-    # Deny-over-max runs after the update step has tightened MAX_REPLICAS to
-    # $MaxReplicasUpdated, so the deny target must exceed the *new* bound.
-    Set-Content -Path $denyOverMaxReplicasFile -Value (@{ namespace = $Namespace; name = "demo-nginx"; replicas = ($MaxReplicasUpdated + 1) } | ConvertTo-Json -Compress) -NoNewline
-    Set-Content -Path $denyOtherConfigMapFile -Value (@{ namespace = $Namespace; configmap = "other-config"; key = $FeatureFlagKey; value = "v" } | ConvertTo-Json -Compress) -NoNewline
-    Set-Content -Path $denyOtherKeyFile -Value (@{ namespace = $Namespace; configmap = $FeatureFlagConfigMap; key = "NOT_ALLOWED"; value = "v" } | ConvertTo-Json -Compress) -NoNewline
+    Set-Content -Path $denyOverMaxReplicasFile -Value (@{ namespace = $Namespace; name = "demo-nginx"; replicas = $OverMaxReplicas } | ConvertTo-Json -Compress) -NoNewline
     Set-Content -Path $denyInvalidNameFile -Value (@{ namespace = $Namespace; name = "INVALID_NAME"; replicas = 1 } | ConvertTo-Json -Compress) -NoNewline
 
     Write-Output "=== Read-only endpoint checks ==="
@@ -275,13 +257,6 @@ try {
         Assert-True (($nodeProperties.Count -eq 1) -and ($nodeProperties[0] -eq "name")) "Nodes endpoint exposed extra fields: $($nodeProperties -join ',')"
     }
 
-    # The feature-flags read returns a plain map[string]string narrowed to
-    # FeatureFlagKeys. Seeded $NonAllowlistedKey must not appear in the response.
-    $featureFlags = Invoke-ApiJson -Name "cluster-feature-flags" -Method "GET" -Url "$BaseUrl/api/cluster/feature-flags?namespace=$Namespace"
-    Assert-True ($featureFlags.MAX_REPLICAS -eq [string]$MaxReplicasPolicy) "Feature-flags endpoint did not return MAX_REPLICAS=$MaxReplicasPolicy; got $($featureFlags.MAX_REPLICAS)."
-    $featureFlagProperties = @($featureFlags.PSObject.Properties | ForEach-Object { $_.Name })
-    Assert-True (-not ($featureFlagProperties -contains $NonAllowlistedKey)) "Feature-flags endpoint leaked non-allowlisted key ${NonAllowlistedKey}: $($featureFlagProperties -join ',')"
-
     $replicaSets = Invoke-ApiJson -Name "cluster-replicasets" -Method "GET" -Url "$BaseUrl/api/cluster/replicasets?namespace=$Namespace"
     Assert-True ((@($replicaSets | Where-Object { $_.owner -eq "demo-nginx" })).Count -ge 1) "ReplicaSets endpoint did not include any RS owned by demo-nginx."
 
@@ -322,14 +297,6 @@ try {
         return $LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($restartAfter) -and $restartAfter -ne $restartBefore
     } | Out-Null
 
-    Invoke-Check -Name "op-update-feature-flag" -Method "POST" -Url "$BaseUrl/api/operations/update-feature-flag" -BodyFile $featureFlagFile
-    Wait-Until -Description "$FeatureFlagKey applied to $FeatureFlagConfigMap" -Condition {
-        $value = Get-Text (& kubectl -n $Namespace get configmap $FeatureFlagConfigMap -o jsonpath="{.data.$FeatureFlagKey}")
-        return $LASTEXITCODE -eq 0 -and $value -eq [string]$MaxReplicasUpdated
-    } | Out-Null
-    $featureFlagsAfter = Invoke-ApiJson -Name "verify-feature-flags-after-update" -Method "GET" -Url "$BaseUrl/api/cluster/feature-flags?namespace=$Namespace"
-    Assert-True ($featureFlagsAfter.MAX_REPLICAS -eq [string]$MaxReplicasUpdated) "Feature-flags read did not reflect updated MAX_REPLICAS=$MaxReplicasUpdated; got $($featureFlagsAfter.MAX_REPLICAS)."
-
     Invoke-Check -Name "op-rollback" -Method "POST" -Url "$BaseUrl/api/operations/rollback" -BodyFile $rollbackFile
     Invoke-External -Command { kubectl -n $Namespace rollout status deployment/demo-nginx --timeout=180s | Out-Null } -ErrorMessage "Rollback rollout did not complete"
     Wait-Until -Description "rollback cleared restartedAt annotation by reverting to revision 1" -Condition {
@@ -343,9 +310,7 @@ try {
     Write-Output "=== Mutation deny-path checks (Phase 3 enforcer must reject each with 403) ==="
     Invoke-Check -Name "deny-scale-blocked-namespace (kube-system)" -Method "POST" -Url "$BaseUrl/api/operations/scale" -BodyFile $denyBlockedNamespaceFile -ExpectStatus 403
     Invoke-Check -Name "deny-scale-namespace-not-on-allowlist" -Method "POST" -Url "$BaseUrl/api/operations/scale" -BodyFile $denyOtherNamespaceFile -ExpectStatus 403
-    Invoke-Check -Name "deny-scale-over-MAX_REPLICAS" -Method "POST" -Url "$BaseUrl/api/operations/scale" -BodyFile $denyOverMaxReplicasFile -ExpectStatus 403
-    Invoke-Check -Name "deny-update-feature-flag-non-allowlisted-configmap" -Method "POST" -Url "$BaseUrl/api/operations/update-feature-flag" -BodyFile $denyOtherConfigMapFile -ExpectStatus 403
-    Invoke-Check -Name "deny-update-feature-flag-non-allowlisted-key" -Method "POST" -Url "$BaseUrl/api/operations/update-feature-flag" -BodyFile $denyOtherKeyFile -ExpectStatus 403
+    Invoke-Check -Name "deny-scale-over-MaxReplicas" -Method "POST" -Url "$BaseUrl/api/operations/scale" -BodyFile $denyOverMaxReplicasFile -ExpectStatus 403
     # The model layer accepts non-empty names; DNS-1123 is the enforcer's check
     # (so the audit log records *why* the name was rejected). Hence 403, not 400.
     Invoke-Check -Name "deny-scale-invalid-DNS-1123-name" -Method "POST" -Url "$BaseUrl/api/operations/scale" -BodyFile $denyInvalidNameFile -ExpectStatus 403
@@ -353,9 +318,6 @@ try {
     Write-Output "=== Verifying denied operations did not mutate cluster state ==="
     $denyState = Invoke-ApiJson -Name "verify-deployment-unchanged-after-denies" -Method "GET" -Url "$BaseUrl/api/cluster/deployments/demo-nginx?namespace=$Namespace"
     Assert-True ($denyState.replicas -eq $MaxReplicasPolicy) "Denied scales must not have changed replicas; got $($denyState.replicas)."
-
-    $otherCM = Get-Text (& kubectl -n $Namespace get configmap other-config -o jsonpath="{.data.$FeatureFlagKey}")
-    Assert-True ([string]::IsNullOrEmpty($otherCM)) "Denied feature-flag write must not have touched other-config."
 
     Write-Output "All backend endpoint checks passed."
 }

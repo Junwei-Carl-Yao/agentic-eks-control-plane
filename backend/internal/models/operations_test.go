@@ -1,7 +1,7 @@
 // Phase 2.4 — typed request models with structural validation.
 // Note: these are *structural* checks (required fields, type bounds). Policy checks
-// (DNS-1123 names, MAX_REPLICAS per namespace, env-var denylist) are Phase 3 and
-// belong in internal/guardrails, not here.
+// (DNS-1123 names, MaxReplicas bound) are Phase 3 and belong in
+// internal/guardrails, not here.
 package models
 
 import "testing"
@@ -52,29 +52,6 @@ func TestRolloutRestartRequest_RequiresNamespaceAndName(t *testing.T) {
 		if err := rolloutRestartRequest.Validate(); err == nil {
 			t.Errorf("expected error for %+v", rolloutRestartRequest)
 		}
-	}
-}
-
-// Scenario: update-feature-flag needs configmap + key. Namespace and key are
-// required because the operation must unambiguously identify exactly one cell
-// in the ConfigMap data map.
-func TestUpdateFeatureFlagRequest_RequiresConfigMapAndKey(t *testing.T) {
-	for _, updateFeatureFlagRequest := range []UpdateFeatureFlagRequest{
-		{Namespace: "", ConfigMap: "app-flags", Key: "K"},
-		{Namespace: "app", ConfigMap: "", Key: "K"},
-		{Namespace: "app", ConfigMap: "app-flags", Key: ""},
-	} {
-		if err := updateFeatureFlagRequest.Validate(); err == nil {
-			t.Errorf("expected error for %+v", updateFeatureFlagRequest)
-		}
-	}
-}
-
-// Scenario: empty value is allowed (clearing a flag is a legitimate write).
-func TestUpdateFeatureFlagRequest_AllowsEmptyValue(t *testing.T) {
-	updateFeatureFlagRequest := UpdateFeatureFlagRequest{Namespace: "app", ConfigMap: "app-flags", Key: "K", Value: ""}
-	if err := updateFeatureFlagRequest.Validate(); err != nil {
-		t.Errorf("Validate: %v", err)
 	}
 }
 

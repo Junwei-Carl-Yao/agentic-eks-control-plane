@@ -37,9 +37,7 @@ func TestValidDNS1123_RejectsInvalid(t *testing.T) {
 	}
 }
 
-// Scenario: replicas must be >= 1 and <= MAX_REPLICAS. MaxReplicas == 0 means
-// "no upper bound" — the loader defaults to 10 so this branch is mostly for
-// tests that want to cover the lower bound in isolation.
+// Scenario: replicas must be >= 1 and <= maximum.
 func TestValidReplicas_BoundsCheck(t *testing.T) {
 	cases := []struct {
 		requested int
@@ -56,20 +54,6 @@ func TestValidReplicas_BoundsCheck(t *testing.T) {
 		err := validReplicas(testCase.requested, testCase.maximum)
 		if (err != nil) != testCase.wantErr {
 			t.Errorf("requested=%d max=%d → err=%v, wantErr=%v", testCase.requested, testCase.maximum, err, testCase.wantErr)
-		}
-	}
-}
-
-// Scenario: feature-flag keys must obey ConfigMap-data-key character rules and
-// the length cap. Empty is rejected (the model layer also rejects, but the
-// enforcer's audit reason is what surfaces in the UI).
-func TestValidFeatureFlagKey(t *testing.T) {
-	if err := validFeatureFlagKey("FEATURE_X"); err != nil {
-		t.Errorf("FEATURE_X rejected: %v", err)
-	}
-	for _, invalidKey := range []string{"", "has space", "bad/slash"} {
-		if err := validFeatureFlagKey(invalidKey); err == nil {
-			t.Errorf("key %q accepted; want rejection", invalidKey)
 		}
 	}
 }

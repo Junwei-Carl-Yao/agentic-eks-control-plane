@@ -171,20 +171,6 @@ func TestListNodes_ReturnsNamesOnly(t *testing.T) {
 	}
 }
 
-// Scenario: feature-flag ConfigMap seeded → GetFeatureFlags returns its data
-// map. The kubernetes layer is a generic getter; the policy that there is
-// only one allowed ConfigMap lives at the guardrails layer.
-func TestGetFeatureFlags_ReturnsData(t *testing.T) {
-	kubeClient := newFakeClient(t, withConfigMap("app", "app-flags", map[string]string{"FOO": "1"}))
-	data, err := kubeClient.GetFeatureFlags(context.Background(), "app", "app-flags")
-	if err != nil {
-		t.Fatalf("GetFeatureFlags: %v", err)
-	}
-	if data["FOO"] != "1" {
-		t.Errorf("data = %v, want FOO=1", data)
-	}
-}
-
 // Scenario: replicasets seeded with revision history → ListReplicaSets returns
 // each RS's revision and its owning Deployment's name.
 func TestListReplicaSets_CarriesRevisionAndOwner(t *testing.T) {

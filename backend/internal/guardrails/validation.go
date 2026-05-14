@@ -13,11 +13,7 @@ import (
 // then failed at the apiserver — defeating the point of validating here.
 var dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
-const (
-	dns1123LabelMaxLength = 63
-	featureFlagKeyMaxLen  = 253
-	featureFlagValMaxLen  = 4096
-)
+const dns1123LabelMaxLength = 63
 
 // validNamespace accepts only DNS-1123 label names. Empty is rejected — an
 // empty namespace would default to "default" downstream, and "default" is not
@@ -44,41 +40,14 @@ func validDNS1123(value, label string) error {
 }
 
 // validReplicas enforces the implementation §3.2 bounds: positive and within
-// MAX_REPLICAS. The "positive" half also lives at the K8s op layer, but we
+// MaxReplicas. The "positive" half also lives at the K8s op layer, but we
 // duplicate it here so the audit log carries the right reason code.
 func validReplicas(requested, maximum int) error {
 	if requested < 1 {
 		return fmt.Errorf("replicas must be >= 1, got %d", requested)
 	}
 	if requested > maximum {
-		return fmt.Errorf("replicas %d exceeds MAX_REPLICAS=%d", requested, maximum)
-	}
-	return nil
-}
-
-// validFeatureFlagKey rejects empty/oversized keys and characters that would
-// be illegal in a ConfigMap data key (must match [-._a-zA-Z0-9]+ per the
-// kube-apiserver validation).
-var configMapKeyChars = regexp.MustCompile(`^[-._a-zA-Z0-9]+$`)
-
-func validFeatureFlagKey(key string) error {
-	if key == "" {
-		return fmt.Errorf("key is required")
-	}
-	if len(key) > featureFlagKeyMaxLen {
-		return fmt.Errorf("key exceeds %d characters", featureFlagKeyMaxLen)
-	}
-	if !configMapKeyChars.MatchString(key) {
-		return fmt.Errorf("key %q contains characters not allowed in a ConfigMap data key", key)
-	}
-	return nil
-}
-
-// validFeatureFlagValue caps value length. Empty is allowed (clearing a flag).
-// We don't restrict character set — ConfigMap values are arbitrary strings.
-func validFeatureFlagValue(value string) error {
-	if len(value) > featureFlagValMaxLen {
-		return fmt.Errorf("value exceeds %d characters", featureFlagValMaxLen)
+		return fmt.Errorf("replicas %d exceeds MaxReplicas=%d", requested, maximum)
 	}
 	return nil
 }

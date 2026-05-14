@@ -35,7 +35,6 @@ type ClusterReader interface {
 	ListHorizontalPodAutoscalers(ctx context.Context, namespace string) ([]HorizontalPodAutoscaler, error)
 	ListNamespaces(ctx context.Context) ([]Namespace, error)
 	ListNodes(ctx context.Context) ([]Node, error)
-	GetFeatureFlags(ctx context.Context, namespace, name string) (map[string]string, error)
 	ListReplicaSets(ctx context.Context, namespace string) ([]ReplicaSet, error)
 }
 
@@ -47,7 +46,6 @@ type Operations interface {
 	PauseRollout(ctx context.Context, namespace, name string) error
 	ResumeRollout(ctx context.Context, namespace, name string) error
 	Rollback(ctx context.Context, namespace, name string, revision int64) error
-	UpdateFeatureFlag(ctx context.Context, namespace, configMap, key, value string) error
 }
 
 // Deps bundles the optional clients the route layer needs. Any nil field
