@@ -1,13 +1,14 @@
 // Phase 2.5 + 3 — mutation routes.
 // Routes run: decode → models.Validate → guardrails.Enforce → ops dispatch.
 // These tests cover dispatch + structural validation + the deny short-circuit.
-// Per-action policy semantics (allowlists, MAX_REPLICAS) are exercised in the
+// Per-action policy semantics (allowlists, MaxReplicas) are exercised in the
 // guardrails package; here we just verify that a denial returns 403 and never
 // reaches the ops layer.
 package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -76,7 +77,6 @@ func TestMutationRoutes_RejectNonPost(t *testing.T) {
 		"/api/operations/pause-rollout",
 		"/api/operations/resume-rollout",
 		"/api/operations/rollback",
-		"/api/operations/update-feature-flag",
 	} {
 		responseRecorder := httptest.NewRecorder()
 		handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, mutationRoutePath, nil))
@@ -127,20 +127,6 @@ func TestRollbackRoute_OmittedRevisionMeansPrevious(t *testing.T) {
 	}
 }
 
-// Scenario: update-feature-flag route dispatches with configmap + key + value.
-// The op never touches envFrom or other ConfigMap keys — that invariant lives
-// in the kubernetes layer's UpdateFeatureFlag and is exercised there.
-func TestUpdateFeatureFlagRoute_Dispatches(t *testing.T) {
-	operationsStub := &stubOps{}
-	handler := newTestHandlerWithOps(operationsStub)
-	requestBody := `{"namespace":"app","configmap":"app-flags","key":"FOO","value":"bar"}`
-	responseRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodPost, "/api/operations/update-feature-flag", strings.NewReader(requestBody)))
-	if responseRecorder.Code != 200 || operationsStub.lastFlagKey != "FOO" || operationsStub.lastFlagValue != "bar" {
-		t.Errorf("status=%d key=%s value=%s", responseRecorder.Code, operationsStub.lastFlagKey, operationsStub.lastFlagValue)
-	}
-}
-
 // Scenario: a write the enforcer denies (here: namespace not on allowlist) →
 // 403 with the audit decision in the body, and the ops layer is never called.
 // The denial path is what makes the chokepoint a chokepoint, so this is the
@@ -149,7 +135,7 @@ func TestMutationRoutes_DenialReturns403AndSkipsOps(t *testing.T) {
 	operationsStub := &stubOps{}
 	// The init override allows only `app`; the request below targets a
 	// non-allowlisted namespace.
-	enforcer := guardrails.New(testPolicy(), func() (map[string]string, error) { return map[string]string{"MAX_REPLICAS": "10"}, nil }, slog.Default())
+	enforcer := guardrails.New(testPolicy(), slog.Default())
 	handler := newTestHandlerWithOpsAndEnforcer(operationsStub, enforcer)
 	responseRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodPost, "/api/operations/scale",
@@ -172,44 +158,16 @@ func TestMutationRoutes_DenialReturns403AndSkipsOps(t *testing.T) {
 	}
 }
 
-// Scenario: replicas above MAX_REPLICAS → 403 with a reason naming the cap, so
+// Scenario: replicas above MaxReplicas → 403 with a reason naming the cap, so
 // the UI can render exactly what was rejected.
 func TestScaleRoute_OverMaxReplicasIs403(t *testing.T) {
 	operationsStub := &stubOps{}
-	enforcer := guardrails.New(testPolicy(), func() (map[string]string, error) { return map[string]string{"MAX_REPLICAS": "5"}, nil }, slog.Default())
-	handler := newTestHandlerWithOpsAndEnforcer(operationsStub, enforcer)
+	handler := newTestHandlerWithOps(operationsStub)
 	responseRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodPost, "/api/operations/scale",
-		strings.NewReader(`{"namespace":"app","name":"web","replicas":6}`)))
+		strings.NewReader(fmt.Sprintf(`{"namespace":"app","name":"web","replicas":%d}`, guardrails.MaxReplicas+1))))
 	if responseRecorder.Code != 403 || operationsStub.scaleCalls != 0 {
 		t.Errorf("status=%d calls=%d, want 403/0", responseRecorder.Code, operationsStub.scaleCalls)
-	}
-}
-
-// Scenario: feature-flag write to a ConfigMap that's not on the allowlist →
-// 403, even with a valid namespace. update-feature-flag has the strictest
-// policy of any mutation, so we cover both the CM and the key denial paths.
-func TestUpdateFeatureFlagRoute_DeniesUnallowlistedConfigMap(t *testing.T) {
-	operationsStub := &stubOps{}
-	enforcer := guardrails.New(testPolicy(), func() (map[string]string, error) { return map[string]string{"MAX_REPLICAS": "10"}, nil }, slog.Default())
-	handler := newTestHandlerWithOpsAndEnforcer(operationsStub, enforcer)
-	responseRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodPost, "/api/operations/update-feature-flag",
-		strings.NewReader(`{"namespace":"app","configmap":"other-config","key":"FOO","value":"v"}`)))
-	if responseRecorder.Code != 403 || operationsStub.lastFlagKey != "" {
-		t.Errorf("status=%d key=%q, want 403/empty", responseRecorder.Code, operationsStub.lastFlagKey)
-	}
-}
-
-func TestUpdateFeatureFlagRoute_DeniesUnallowlistedKey(t *testing.T) {
-	operationsStub := &stubOps{}
-	enforcer := guardrails.New(testPolicy(), func() (map[string]string, error) { return map[string]string{"MAX_REPLICAS": "10"}, nil }, slog.Default())
-	handler := newTestHandlerWithOpsAndEnforcer(operationsStub, enforcer)
-	responseRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodPost, "/api/operations/update-feature-flag",
-		strings.NewReader(`{"namespace":"app","configmap":"app-flags","key":"BAR","value":"v"}`)))
-	if responseRecorder.Code != 403 || operationsStub.lastFlagKey != "" {
-		t.Errorf("status=%d key=%q, want 403/empty", responseRecorder.Code, operationsStub.lastFlagKey)
 	}
 }
 

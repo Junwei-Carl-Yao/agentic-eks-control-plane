@@ -129,7 +129,6 @@ func TestNewReadRoutes_Return200(t *testing.T) {
 		{"hpas", "/api/cluster/hpas?namespace=app", true, stubReads{hpas: []HorizontalPodAutoscaler{{Name: "web"}}}},
 		{"namespaces", "/api/cluster/namespaces", false, stubReads{namespaces: []Namespace{{Name: "app"}}}},
 		{"nodes", "/api/cluster/nodes", false, stubReads{nodes: []Node{{Name: "ip-10-0-0-1"}}}},
-		{"feature-flags", "/api/cluster/feature-flags?namespace=app", true, stubReads{featureFlag: map[string]string{}}},
 		{"replicasets", "/api/cluster/replicasets?namespace=app", true, stubReads{replicaSets: []ReplicaSet{{Name: "web-abcd"}}}},
 	}
 	for _, testCase := range cases {
@@ -207,30 +206,6 @@ func TestGetDeployment_InvalidNameDeniedAt403(t *testing.T) {
 	}
 }
 
-// Scenario: GetFeatureFlags returns the allowed key/value pairs from the
-// single feature-flag ConfigMap, narrowed to the FeatureFlagKeys allowlist.
-// The route hardcodes the CM name and never accepts it from the caller — the
-// binary is a feature-flag console, not a generic ConfigMap browser.
-func TestGetFeatureFlags_ReturnsScopedData(t *testing.T) {
-	readsStub := stubReads{featureFlag: map[string]string{
-		"FOO":          "true",
-		"SECRET_TOKEN": "leak-me",
-	}}
-	handler := newTestHandlerWithReads(readsStub)
-	responseRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/api/cluster/feature-flags?namespace=app", nil))
-	if responseRecorder.Code != 200 {
-		t.Fatalf("status = %d, want 200; body=%s", responseRecorder.Code, responseRecorder.Body.String())
-	}
-	var data map[string]string
-	if err := json.NewDecoder(responseRecorder.Body).Decode(&data); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if len(data) != 1 || data["FOO"] != "true" {
-		t.Errorf("data = %v, want only {FOO:true}", data)
-	}
-}
-
 // Scenario: ListNodes stays unguarded — the reads layer already returns
 // names only, and there's no namespace to gate on. Confirm the route still
 // reaches the reader rather than going through an enforce step.
@@ -256,7 +231,6 @@ func TestNewReadRoutes_MissingNamespaceIs400(t *testing.T) {
 		"/api/cluster/services",
 		"/api/cluster/ingresses",
 		"/api/cluster/hpas",
-		"/api/cluster/feature-flags",
 		"/api/cluster/replicasets",
 	} {
 		handler := newTestHandlerWithReads(stubReads{})

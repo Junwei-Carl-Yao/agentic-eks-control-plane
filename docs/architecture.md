@@ -1,3 +1,3 @@
 # Architecture
 
-Notes on the two-agent design, guardrail layer, and execution flow.
+Notes on the single-agent design, guardrail layer, and execution flow.

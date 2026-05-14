@@ -19,7 +19,6 @@ func mountOperationRoutes(serveMux *http.ServeMux, ops Operations, enforcer *gua
 	serveMux.HandleFunc("POST /api/operations/pause-rollout", pauseRolloutHandler(ops, enforcer))
 	serveMux.HandleFunc("POST /api/operations/resume-rollout", resumeRolloutHandler(ops, enforcer))
 	serveMux.HandleFunc("POST /api/operations/rollback", rollbackHandler(ops, enforcer))
-	serveMux.HandleFunc("POST /api/operations/update-feature-flag", updateFeatureFlagHandler(ops, enforcer))
 }
 
 func scaleHandler(ops Operations, enforcer *guardrails.Enforcer) http.HandlerFunc {
@@ -105,24 +104,6 @@ func rollbackHandler(ops Operations, enforcer *guardrails.Enforcer) http.Handler
 			return
 		}
 		if err := ops.Rollback(request.Context(), body.Namespace, body.Name, body.Revision); err != nil {
-			writeOpsError(writer, err)
-			return
-		}
-		writeOk(writer, decision)
-	}
-}
-
-func updateFeatureFlagHandler(ops Operations, enforcer *guardrails.Enforcer) http.HandlerFunc {
-	return func(writer http.ResponseWriter, request *http.Request) {
-		var body models.UpdateFeatureFlagRequest
-		if !decodeAndValidate(writer, request, &body) {
-			return
-		}
-		decision := enforcer.UpdateFeatureFlag(body)
-		if !writeIfDenied(writer, decision) {
-			return
-		}
-		if err := ops.UpdateFeatureFlag(request.Context(), body.Namespace, body.ConfigMap, body.Key, body.Value); err != nil {
 			writeOpsError(writer, err)
 			return
 		}

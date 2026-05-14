@@ -55,25 +55,6 @@ func podTemplateAnnotation(t *testing.T, client *Client, namespace, name, key st
 	return deployment.Spec.Template.Annotations[key]
 }
 
-func configMapData(t *testing.T, client *Client, namespace, name string) map[string]string {
-	t.Helper()
-	configMap, err := client.kubernetesInterface.CoreV1().ConfigMaps(namespace).Get(context.Background(), name, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get configmap: %v", err)
-	}
-	return configMap.Data
-}
-
-func configMapHasBinaryDataKey(t *testing.T, client *Client, namespace, name, key string) bool {
-	t.Helper()
-	configMap, err := client.kubernetesInterface.CoreV1().ConfigMaps(namespace).Get(context.Background(), name, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get configmap: %v", err)
-	}
-	_, ok := configMap.BinaryData[key]
-	return ok
-}
-
 func descending(events []Event) bool {
 	for index := 1; index < len(events); index++ {
 		if events[index-1].Time.Before(events[index].Time) {

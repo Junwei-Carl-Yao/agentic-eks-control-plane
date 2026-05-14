@@ -4,9 +4,10 @@
 // bounded regardless of who proposes the action (human or LLM).
 package guardrails
 
-// FeatureFlagConfigMap is the only ConfigMap name UpdateFeatureFlag may write
-// to. Any other ConfigMap is rejected at the enforcer.
-const FeatureFlagConfigMap = "app-flags"
+// MaxReplicas is the hard upper bound on Scale.Replicas. Hardcoded at compile
+// time so no caller (route, agent, future internal use) can widen it without
+// rebuilding the binary.
+const MaxReplicas = 10
 
 // Policy is the static guardrail policy. It is passed by value into New and
 // copied defensively, so widening the policy is impossible without
@@ -14,7 +15,6 @@ const FeatureFlagConfigMap = "app-flags"
 // package-level mutable state that participates in any decision.
 type Policy struct {
 	AllowedNamespaces []string
-	FeatureFlagKeys   []string
 }
 
 // DefaultPolicy returns the production policy. Values are fixed at compile
@@ -23,7 +23,6 @@ type Policy struct {
 func DefaultPolicy() Policy {
 	return Policy{
 		AllowedNamespaces: []string{"api-smoke"},
-		FeatureFlagKeys:   []string{"MAX_REPLICAS"},
 	}
 }
 
@@ -36,17 +35,4 @@ func (policy Policy) namespaceAllowed(namespace string) (bool, string) {
 		}
 	}
 	return false, "namespace " + namespace + " is not on the allowed list"
-}
-
-func (policy Policy) featureFlagKeyAllowed(key string) bool {
-	for _, allowed := range policy.FeatureFlagKeys {
-		if allowed == key {
-			return true
-		}
-	}
-	return false
-}
-
-func configMapAllowed(name string) bool {
-	return FeatureFlagConfigMap == name
 }

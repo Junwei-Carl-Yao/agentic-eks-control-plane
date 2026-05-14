@@ -117,57 +117,6 @@ func TestRollback_IgnoresReplicaSetsFromOtherDeployments(t *testing.T) {
 	}
 }
 
-// Scenario: UpdateFeatureFlag writes a single key into the named ConfigMap's
-// data map and leaves the other keys alone. The implementation §2.2 guarantee
-// is "single key … other keys, binaryData … untouched"; we cover keys here
-// and binaryData below.
-func TestUpdateFeatureFlag_OnlyTouchesNamedKey(t *testing.T) {
-	kubeClient := newFakeClient(t, withConfigMap("app", "app-flags",
-		map[string]string{"KEEP": "yes", "REPLACE": "old"}))
-	if err := kubeClient.UpdateFeatureFlag(context.Background(), "app", "app-flags", "REPLACE", "new"); err != nil {
-		t.Fatalf("UpdateFeatureFlag: %v", err)
-	}
-	updatedData := configMapData(t, kubeClient, "app", "app-flags")
-	if updatedData["KEEP"] != "yes" || updatedData["REPLACE"] != "new" {
-		t.Errorf("data = %v, want KEEP=yes REPLACE=new", updatedData)
-	}
-}
-
-// Scenario: ConfigMap has binaryData. UpdateFeatureFlag must not delete,
-// reorder, or otherwise touch binaryData — implementation §2.2 invariant.
-func TestUpdateFeatureFlag_LeavesBinaryDataUntouched(t *testing.T) {
-	kubeClient := newFakeClient(t,
-		withConfigMapBinaryData("app", "app-flags", map[string][]byte{"cert.pem": []byte("payload")}))
-	if err := kubeClient.UpdateFeatureFlag(context.Background(), "app", "app-flags", "FOO", "bar"); err != nil {
-		t.Fatalf("UpdateFeatureFlag: %v", err)
-	}
-	if !configMapHasBinaryDataKey(t, kubeClient, "app", "app-flags", "cert.pem") {
-		t.Error("binaryData cert.pem was modified or removed")
-	}
-}
-
-// Scenario: ConfigMap has no Data map yet (only binaryData or empty). The op
-// should still write the key without panicking on a nil map.
-func TestUpdateFeatureFlag_InitializesEmptyData(t *testing.T) {
-	kubeClient := newFakeClient(t, withConfigMap("app", "app-flags", nil))
-	if err := kubeClient.UpdateFeatureFlag(context.Background(), "app", "app-flags", "NEW", "v"); err != nil {
-		t.Fatalf("UpdateFeatureFlag: %v", err)
-	}
-	if value := configMapData(t, kubeClient, "app", "app-flags")["NEW"]; value != "v" {
-		t.Errorf("NEW = %q, want v", value)
-	}
-}
-
-// Scenario: ConfigMap doesn't exist → IsNotFound, so the route layer can map
-// to 404 instead of returning a generic 500.
-func TestUpdateFeatureFlag_MissingConfigMapNotFound(t *testing.T) {
-	kubeClient := newFakeClient(t)
-	err := kubeClient.UpdateFeatureFlag(context.Background(), "app", "ghost", "FOO", "bar")
-	if !IsNotFound(err) {
-		t.Errorf("err = %v, want IsNotFound", err)
-	}
-}
-
 // Scenario: deployment missing → operation returns IsNotFound, not a generic error,
 // so the route layer can map cleanly to 404.
 func TestOperations_NotFoundIsTyped(t *testing.T) {

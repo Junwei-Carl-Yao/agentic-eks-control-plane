@@ -15,7 +15,8 @@
       "Bash(go vet *)",
       "Bash(gofmt *)",
       "PowerShell(go test *)",
-      "Bash(go clean *)"
+      "Bash(go clean *)",
+      "Bash(git diff *)"
     ]
   }
 }

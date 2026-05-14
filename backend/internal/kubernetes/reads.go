@@ -145,25 +145,6 @@ func (client *Client) ListNodes(ctx context.Context) ([]Node, error) {
 	return nodes, nil
 }
 
-// GetFeatureFlags returns the data map of the feature-flag ConfigMap by name.
-// Callers pass the name (the guardrails layer owns the allowlist constant);
-// k8s primitives stay generic-shaped, the domain name reflects the only use
-// case.
-func (client *Client) GetFeatureFlags(ctx context.Context, namespace, name string) (map[string]string, error) {
-	configMap, err := client.kubernetesInterface.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("%w: configmap %s/%s", ErrNotFound, namespace, name)
-		}
-		return nil, fmt.Errorf("kubernetes: get configmap: %w", err)
-	}
-	data := make(map[string]string, len(configMap.Data))
-	for key, value := range configMap.Data {
-		data[key] = value
-	}
-	return data, nil
-}
-
 // ListReplicaSets returns ReplicaSets in a namespace with revision metadata.
 func (client *Client) ListReplicaSets(ctx context.Context, namespace string) ([]ReplicaSet, error) {
 	list, err := client.kubernetesInterface.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{})

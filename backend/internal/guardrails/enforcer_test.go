@@ -3,7 +3,6 @@ package guardrails
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -15,15 +14,11 @@ import (
 // so production and tests exercise the same allowlist.
 var allowedNamespace = DefaultPolicy().AllowedNamespaces[0]
 
-func staticFlags(values map[string]string) func() (map[string]string, error) {
-	return func() (map[string]string, error) { return values, nil }
-}
-
 func newEnforcer(t *testing.T) (*Enforcer, *bytes.Buffer) {
 	t.Helper()
 	logBuffer := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(logBuffer, nil))
-	return New(DefaultPolicy(), staticFlags(map[string]string{"MAX_REPLICAS": "5"}), logger), logBuffer
+	return New(DefaultPolicy(), logger), logBuffer
 }
 
 // Scenario: scale of an allowed deployment with valid replicas → allow.
@@ -45,26 +40,13 @@ func TestEnforcer_ScaleUnallowlistedNamespace(t *testing.T) {
 	}
 }
 
-// Scenario: scale beyond MAX_REPLICAS → deny. The reason must mention
-// MAX_REPLICAS so the UI can render exactly which cap was hit.
+// Scenario: scale beyond MaxReplicas → deny. The reason must mention
+// MaxReplicas so the UI can render exactly which cap was hit.
 func TestEnforcer_ScaleOverMaxReplicas(t *testing.T) {
 	enforcer, _ := newEnforcer(t)
-	decision := enforcer.Scale(models.ScaleRequest{Namespace: allowedNamespace, Name: "web", Replicas: 99})
-	if decision.Allow || !strings.Contains(decision.Reason, "MAX_REPLICAS") {
-		t.Errorf("decision = %+v, want deny mentioning MAX_REPLICAS", decision)
-	}
-}
-
-// Scenario: the maxReplicas resolver fails (e.g. ConfigMap missing) → deny
-// with a reason naming MAX_REPLICAS. Failing closed is the safest behaviour
-// when the live cap is unreadable.
-func TestEnforcer_ScaleDeniesWhenMaxReplicasUnavailable(t *testing.T) {
-	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
-	failing := func() (map[string]string, error) { return nil, errors.New("configmap missing") }
-	enforcer := New(DefaultPolicy(), failing, logger)
-	decision := enforcer.Scale(models.ScaleRequest{Namespace: allowedNamespace, Name: "web", Replicas: 1})
-	if decision.Allow || !strings.Contains(decision.Reason, "MAX_REPLICAS unavailable") {
-		t.Errorf("decision = %+v, want deny on MAX_REPLICAS unavailable", decision)
+	decision := enforcer.Scale(models.ScaleRequest{Namespace: allowedNamespace, Name: "web", Replicas: MaxReplicas + 1})
+	if decision.Allow || !strings.Contains(decision.Reason, "MaxReplicas") {
+		t.Errorf("decision = %+v, want deny mentioning MaxReplicas", decision)
 	}
 }
 
@@ -93,42 +75,6 @@ func TestEnforcer_RollbackAllow(t *testing.T) {
 	decision := enforcer.Rollback(models.RollbackRequest{Namespace: allowedNamespace, Name: "web", Revision: 2})
 	if !decision.Allow {
 		t.Errorf("decision = %+v", decision)
-	}
-}
-
-// Scenario: feature-flag write to an allowlisted ConfigMap + key → allow.
-func TestEnforcer_FeatureFlagAllow(t *testing.T) {
-	enforcer, _ := newEnforcer(t)
-	decision := enforcer.UpdateFeatureFlag(models.UpdateFeatureFlagRequest{
-		Namespace: allowedNamespace, ConfigMap: FeatureFlagConfigMap, Key: DefaultPolicy().FeatureFlagKeys[0], Value: "true",
-	})
-	if !decision.Allow {
-		t.Errorf("decision = %+v", decision)
-	}
-}
-
-// Scenario: feature-flag write to a ConfigMap that's not on the allowlist →
-// deny. This is the load-bearing check that protects every other ConfigMap
-// in the namespace from accidental writes.
-func TestEnforcer_FeatureFlagDeniesUnallowlistedConfigMap(t *testing.T) {
-	enforcer, _ := newEnforcer(t)
-	decision := enforcer.UpdateFeatureFlag(models.UpdateFeatureFlagRequest{
-		Namespace: allowedNamespace, ConfigMap: "other-config", Key: DefaultPolicy().FeatureFlagKeys[0], Value: "true",
-	})
-	if decision.Allow || !strings.Contains(decision.Reason, "other-config") {
-		t.Errorf("decision = %+v, want deny mentioning other-config", decision)
-	}
-}
-
-// Scenario: feature-flag write with a key that's not on the allowlist → deny,
-// even when the ConfigMap is allowed.
-func TestEnforcer_FeatureFlagDeniesUnallowlistedKey(t *testing.T) {
-	enforcer, _ := newEnforcer(t)
-	decision := enforcer.UpdateFeatureFlag(models.UpdateFeatureFlagRequest{
-		Namespace: allowedNamespace, ConfigMap: FeatureFlagConfigMap, Key: "SECRET_KEY", Value: "v",
-	})
-	if decision.Allow || !strings.Contains(decision.Reason, "SECRET_KEY") {
-		t.Errorf("decision = %+v, want deny mentioning SECRET_KEY", decision)
 	}
 }
 

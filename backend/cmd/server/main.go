@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
 	"os"
@@ -30,10 +29,9 @@ func main() {
 		// remains useful.
 		logger.Warn("kubernetes client unavailable; cluster routes disabled", "err", err)
 	} else {
-		policy := guardrails.DefaultPolicy()
 		deps.Reader = kubeClient
 		deps.Ops = kubeClient
-		deps.Enforcer = guardrails.New(policy, featureFlagsFromConfigMap(kubeClient, policy.AllowedNamespaces[0]), logger)
+		deps.Enforcer = guardrails.New(guardrails.DefaultPolicy(), logger)
 	}
 
 	httpServer := &http.Server{
@@ -43,18 +41,4 @@ func main() {
 	}
 	logger.Info("listening", "addr", address)
 	log.Fatal(httpServer.ListenAndServe())
-}
-
-// featureFlagsFromConfigMap returns a loader that reads the feature-flag
-// ConfigMap on every call, so operators can adjust flags by editing the
-// ConfigMap rather than restarting the binary. Adding a new flag means
-// adding a parser on the Enforcer that consumes the returned map; the fetch
-// path stays put. The namespace is supplied by the caller so the loader
-// doesn't reach back into guardrails for a global.
-func featureFlagsFromConfigMap(client *kubernetes.Client, namespace string) func() (map[string]string, error) {
-	return func() (map[string]string, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return client.GetFeatureFlags(ctx, namespace, guardrails.FeatureFlagConfigMap)
-	}
 }

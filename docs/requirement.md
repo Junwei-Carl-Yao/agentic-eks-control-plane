@@ -23,10 +23,9 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - Displays execution results and system feedback
 
 **Agent Runtime (Claude Agent SDK):**
-- Two-agent design:
-  - **Planner Agent:** Interprets user intent and selects appropriate tools/actions
-  - **Validator Agent:** Reviews proposed actions against safety constraints before execution
-- Uses structured tool interfaces (e.g., scale, rollout restart, pause/resume rollout, rollback, feature-flag update)
+- Single agent that interprets user intent and selects appropriate tools/actions
+- Safety is enforced by the backend guardrail layer, not by a separate validator agent
+- Uses structured tool interfaces (e.g., scale, rollout restart, pause/resume rollout, rollback)
 
 **Guardrailed Execution Layer (Backend):**
 - Acts as the single execution boundary for all operations
@@ -39,7 +38,6 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 **Kubernetes Control Surface:**
 - Exposes a constrained set of mutation operations on:
   - Deployments (scale, rollout restart, pause/resume rollout, rollback)
-  - ConfigMaps (feature-flag update on an allowlisted ConfigMap)
 - Read capabilities support decision-making across deployments, pods, events, logs, services, ingresses, horizontal pod autoscalers, namespaces, nodes (names only), configmaps, and replicasets
 
 **Infrastructure Layer (Terraform):**
@@ -49,15 +47,14 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 ### Execution Model
 
 1. User issues a natural-language request via the UI
-2. Planner Agent maps the request to a structured tool call
-3. Validator Agent evaluates the proposed action against guardrails
-4. Backend enforces validation and executes the action if approved
-5. Results (success or failure) are returned to the user
+2. Agent maps the request to a structured tool call
+3. Backend enforces validation and executes the action if approved
+4. Results (success or failure) are returned to the user
 
 ### In Scope
 
-- Guardrailed execution of infrastructure operations (scale, rollout restart, pause/resume rollout, rollback, feature-flag update)
-- Two-agent architecture (planner + validator) using the Claude Agent SDK
+- Guardrailed execution of infrastructure operations (scale, rollout restart, pause/resume rollout, rollback)
+- Single-agent architecture using the Claude Agent SDK
 - Backend-enforced safety constraints independent of LLM behavior
 - Single-cluster EKS control plane
 
@@ -76,7 +73,6 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - Rollout restart deployments
 - Pause/resume rollout
 - Roll back deployments
-- Update a feature-flag key in an allowlisted ConfigMap (guardrailed)
 
 **Blocked:**
 - Delete namespaces, PVCs, or deployments
@@ -90,7 +86,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - `make apply` provisions a working EKS cluster with networking and node groups
 - Users can issue natural-language commands to perform guardrailed operations (e.g., scale, rollout restart, rollback)
 - The backend correctly enforces guardrails and rejects unsafe or disallowed operations
-- The Validator Agent is invoked for all write operations before execution
+- The backend enforcer is invoked for all write operations before execution
 - The dashboard reflects live cluster state and operation results
 - `make destroy` tears everything down cleanly without orphaned resources
 - Comprehensive test coverage and evaluations

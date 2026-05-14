@@ -57,34 +57,6 @@ func TestEnforcer_TailLogsValidatesPodAndContainer(t *testing.T) {
 	}
 }
 
-// Scenario: GetFeatureFlags is stricter than the other namespaced reads — only
-// FeatureFlagConfigMap is permitted, mirroring the UpdateFeatureFlag policy.
-// Any other ConfigMap in the allowed namespace is denied.
-func TestEnforcer_GetFeatureFlagsDeniesUnallowlistedName(t *testing.T) {
-	enforcer, _ := newEnforcer(t)
-	if decision := enforcer.GetFeatureFlags(allowedNamespace, FeatureFlagConfigMap); !decision.Allow {
-		t.Errorf("decision = %+v, want allow on FeatureFlagConfigMap", decision)
-	}
-	decision := enforcer.GetFeatureFlags(allowedNamespace, "other-config")
-	if decision.Allow || !strings.Contains(decision.Reason, "other-config") {
-		t.Errorf("decision = %+v, want deny mentioning other-config", decision)
-	}
-}
-
-// Scenario: FilterFeatureFlagData keeps only keys on the FeatureFlagKeys
-// allowlist. Non-flag keys (added directly to the ConfigMap for unrelated
-// reasons) are stripped from the response.
-func TestEnforcer_FilterFeatureFlagData(t *testing.T) {
-	enforcer, _ := newEnforcer(t)
-	filtered := enforcer.FilterFeatureFlagData(map[string]string{
-		"MAX_REPLICAS": "5",
-		"NON_FLAG_KEY": "x",
-	})
-	if len(filtered) != 1 || filtered["MAX_REPLICAS"] != "5" {
-		t.Errorf("filtered = %v, want only {MAX_REPLICAS:5}", filtered)
-	}
-}
-
 // Scenario: NamespaceAllowed mirrors the allowlist exactly. ListNamespaces
 // uses this to narrow the cluster-wide list, so the equivalence is the
 // load-bearing invariant for that route.

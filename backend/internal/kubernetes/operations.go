@@ -100,29 +100,6 @@ func (client *Client) Rollback(ctx context.Context, namespace, name string, revi
 	return nil
 }
 
-// UpdateFeatureFlag writes a single key into the named ConfigMap's data map.
-// Other keys, binaryData, and ConfigMaps the caller did not name are never
-// touched. The enforcer (Phase 3) restricts which (configmap, key) pairs are
-// allowed — this op trusts that gate.
-func (client *Client) UpdateFeatureFlag(ctx context.Context, namespace, configMap, key, value string) error {
-	configMapClient := client.kubernetesInterface.CoreV1().ConfigMaps(namespace)
-	current, err := configMapClient.Get(ctx, configMap, metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return fmt.Errorf("%w: configmap %s/%s", ErrNotFound, namespace, configMap)
-		}
-		return fmt.Errorf("kubernetes: get configmap: %w", err)
-	}
-	if current.Data == nil {
-		current.Data = map[string]string{}
-	}
-	current.Data[key] = value
-	if _, err := configMapClient.Update(ctx, current, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("kubernetes: update configmap: %w", err)
-	}
-	return nil
-}
-
 // updateDeployment loads, mutates, and writes a Deployment. Centralising the
 // load/save bookends keeps the operations small and the not-found handling
 // consistent.

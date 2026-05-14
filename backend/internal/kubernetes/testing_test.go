@@ -117,35 +117,6 @@ func withRevisionHistory(namespace, name string, revisions []int64) fakeOption {
 	}
 }
 
-// withConfigMap seeds a ConfigMap with the given data.
-func withConfigMap(namespace, name string, data map[string]string) fakeOption {
-	return func(builder *fakeBuilder) {
-		copied := make(map[string]string, len(data))
-		for key, value := range data {
-			copied[key] = value
-		}
-		builder.objects = append(builder.objects, &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
-			Data:       copied,
-		})
-	}
-}
-
-// withConfigMapBinaryData seeds a ConfigMap that has binaryData but no data.
-// Used to assert UpdateFeatureFlag never touches binaryData.
-func withConfigMapBinaryData(namespace, name string, binaryData map[string][]byte) fakeOption {
-	return func(builder *fakeBuilder) {
-		copied := make(map[string][]byte, len(binaryData))
-		for key, value := range binaryData {
-			copied[key] = append([]byte(nil), value...)
-		}
-		builder.objects = append(builder.objects, &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
-			BinaryData: copied,
-		})
-	}
-}
-
 // withService seeds a ClusterIP Service exposing one port.
 func withService(namespace, name string, port int32) fakeOption {
 	return func(builder *fakeBuilder) {
