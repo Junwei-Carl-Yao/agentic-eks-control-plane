@@ -16,7 +16,8 @@
       "Bash(gofmt *)",
       "PowerShell(go test *)",
       "Bash(go clean *)",
-      "Bash(git diff *)"
+      "Bash(git diff *)",
+      "Bash(make lint-backend *)"
     ]
   }
 }

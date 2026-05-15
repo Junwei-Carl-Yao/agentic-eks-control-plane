@@ -20,3 +20,12 @@ The only exceptions are:
 - the Go conventions `ctx` for `context.Context`, `err` for `error`, and `ok` for the boolean second return of map/channel/type-assertion expressions
 - package import identifiers (e.g., `metav1`, `appsv1`)
 - the established Go shorthands `ops`, `deps`, `msg`, `cmd`, `args` (and capitalized/compound forms like `Ops`, `Deps`, `lastArgs`)
+
+## Separate test agent for implementations
+
+For every implementation request, structure work as two separate agents:
+
+1. **Implementor agent** — performs the implementation.
+2. **Unit test agent** — spawned fresh *after* the implementor finishes, with NO shared context from the implementor. It receives only the original user prompt / requirements, the relevant `implementation.md` (or equivalent spec), and pointers to the code that was written. It writes bias-free unit tests that verify both the stated requirements and the actual code correctness/functionality.
+
+If the same agent (or a test agent sharing the implementor's context) writes the tests, it inherits the implementor's assumptions and tends to test what the code *does* rather than what the spec *requires*. The test agent's prompt must tell it to derive expected behavior from the spec/prompt first, then verify the code matches — not the other way around. Do not pass the implementor's transcript or reasoning into the test agent's prompt.
