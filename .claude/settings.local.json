@@ -5,19 +5,21 @@
       "Bash(make lint *)",
       "Skill(update-config)",
       "Bash(make help *)",
-      "PowerShell(make teardown-verify *)",
       "Bash(go build *)",
       "Bash(go test *)",
-      "Bash(terraform init *)",
       "Bash(make lint-frontend *)",
       "Bash(go version *)",
-      "Bash(go mod *)",
       "Bash(go vet *)",
-      "Bash(gofmt *)",
       "PowerShell(go test *)",
-      "Bash(go clean *)",
       "Bash(git diff *)",
-      "Bash(make lint-backend *)"
+      "Bash(make lint-backend *)",
+      "Bash(npm pack *)",
+      "Bash(npx tsc *)",
+      "Bash(npx vitest *)",
+      "mcp__playwright__browser_*",
+      "PowerShell(& \"D:\\\\EKS Control Plane\\\\scripts\\\\demo-up.ps1\")",
+      "PowerShell(& \"D:\\\\EKS Control Plane\\\\scripts\\\\demo-down.ps1\")",
+      "Bash(gh pr *)"
     ]
   }
 }
