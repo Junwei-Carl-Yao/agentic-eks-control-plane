@@ -18,7 +18,8 @@
       "Bash(npx vitest *)",
       "mcp__playwright__browser_*",
       "PowerShell(& \"D:\\\\EKS Control Plane\\\\scripts\\\\demo-up.ps1\")",
-      "PowerShell(& \"D:\\\\EKS Control Plane\\\\scripts\\\\demo-down.ps1\")"
+      "PowerShell(& \"D:\\\\EKS Control Plane\\\\scripts\\\\demo-down.ps1\")",
+      "Bash(gh pr *)"
     ]
   }
 }
