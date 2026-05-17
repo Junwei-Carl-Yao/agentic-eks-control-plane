@@ -23,6 +23,18 @@
                                                      "command":  "$backendPath = Join-Path (Resolve-Path '.').Path 'backend'; if (-not (Test-Path $backendPath)) { exit 0 }; Push-Location $backendPath; try { $output = @(); $failed = $false; $buildOutput = & go build ./... 2>&1; if ($LASTEXITCODE -ne 0) { $output += '--- go build ---'; $output += ($buildOutput -join \"`n\"); $failed = $true }; $vetOutput = & go vet ./... 2>&1; if ($LASTEXITCODE -ne 0) { $output += '--- go vet ---'; $output += ($vetOutput -join \"`n\"); $failed = $true }; $testOutput = & go test ./... 2>&1; if ($LASTEXITCODE -ne 0) { $output += '--- go test ---'; $output += ($testOutput -join \"`n\"); $failed = $true }; if ($failed) { $reason = \"Backend Go checks failed. Fix before finishing turn:`n`n\" + ($output -join \"`n\"); @{ decision = 'block'; reason = $reason } | ConvertTo-Json -Compress } } finally { Pop-Location }; exit 0",
                                                      "timeout":  300,
                                                      "statusMessage":  "Verifying backend (go build + vet + test)"
+                                                 },
+                                                 {
+                                                     "type":  "command",
+                                                     "command":  "$agentPath = Join-Path (Resolve-Path '.').Path 'agent'; if (-not (Test-Path $agentPath)) { exit 0 }; Push-Location $agentPath; try { $output = & npm run test 2>&1; $rc = $LASTEXITCODE; if ($rc -ne 0) { $reason = \"Agent tests failed (npm run test exit=$rc). Fix before finishing turn:`n`n\" + ($output -join \"`n\"); @{ decision = 'block'; reason = $reason } | ConvertTo-Json -Compress } } finally { Pop-Location }; exit 0",
+                                                     "timeout":  300,
+                                                     "statusMessage":  "Verifying agent (npm run test)"
+                                                 },
+                                                 {
+                                                     "type":  "command",
+                                                     "command":  "$frontendPath = Join-Path (Resolve-Path '.').Path 'frontend'; if (-not (Test-Path $frontendPath)) { exit 0 }; Push-Location $frontendPath; try { $output = & npm run test 2>&1; $rc = $LASTEXITCODE; if ($rc -ne 0) { $reason = \"Frontend tests failed (npm run test exit=$rc). Fix before finishing turn:`n`n\" + ($output -join \"`n\"); @{ decision = 'block'; reason = $reason } | ConvertTo-Json -Compress } } finally { Pop-Location }; exit 0",
+                                                     "timeout":  300,
+                                                     "statusMessage":  "Verifying frontend (npm run test)"
                                                  }
                                              ]
                                }

@@ -11,6 +11,7 @@ endif
 INFRA_DIR       := infrastructure
 BACKEND_DIR     := backend
 FRONTEND_DIR    := frontend
+AGENT_DIR       := agent
 HELM_DIR        := deploy/helm
 BOOTSTRAP       := scripts/bootstrap.sh
 ASSERT_SCRIPT   := scripts/infra_assertions.sh
@@ -47,8 +48,8 @@ endif
         plan apply destroy \
         dev dev-backend dev-frontend \
         test test-backend test-frontend \
-        lint lint-backend lint-frontend lint-terraform \
-        format format-backend format-frontend format-terraform \
+        lint lint-backend lint-frontend lint-agent lint-terraform \
+        format format-backend format-frontend format-agent format-terraform \
         backend frontend \
         deploy \
         drift apply-verify teardown-verify \
@@ -105,7 +106,7 @@ test-backend:
 test-frontend:
 	@echo "[placeholder] frontend tests (vitest)"
 
-lint: lint-backend lint-frontend lint-terraform
+lint: lint-backend lint-frontend lint-agent lint-terraform
 
 lint-backend:
 	@$(BASH) "scripts/lint.sh"
@@ -115,17 +116,25 @@ lint-frontend:
 	cd $(FRONTEND_DIR) && npm run format:check
 	cd $(FRONTEND_DIR) && npm run typecheck
 
+lint-agent:
+	cd $(AGENT_DIR) && npm run lint
+	cd $(AGENT_DIR) && npm run format:check
+	cd $(AGENT_DIR) && npm run typecheck
+
 lint-terraform:
 	cd $(INFRA_DIR) && $(TF) fmt -check -recursive
 	cd $(INFRA_DIR) && tflint --config="$(CURDIR)/.tflint.hcl"
 
-format: format-backend format-frontend format-terraform
+format: format-backend format-frontend format-agent format-terraform
 
 format-backend:
 	cd $(BACKEND_DIR) && $(GOFMT) -w .
 
 format-frontend:
 	cd $(FRONTEND_DIR) && npm run format
+
+format-agent:
+	cd $(AGENT_DIR) && npm run format
 
 format-terraform:
 	cd $(INFRA_DIR) && $(TF) fmt -recursive

@@ -31,3 +31,11 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Local working dirs
+.demo/
+.go-tmp/
+.playwright-mcp/
+
+# Generated eval artifacts
+agent/test/evals/report.json
