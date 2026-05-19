@@ -28,12 +28,15 @@ type stubReads struct {
 	namespaces  []Namespace
 	nodes       []Node
 	replicaSets []ReplicaSet
+	clusterInfo *ClusterInfo
 	notFound    bool
 
 	lastPodSelector  string
 	lastLogPod       string
 	lastLogContainer string
 	lastLogLines     int64
+	lastInfoName     string
+	lastInfoRegion   string
 }
 
 func (stub *stubReads) ListDeployments(_ context.Context, _ string) ([]Deployment, error) {
@@ -88,6 +91,15 @@ func (stub *stubReads) ListNodes(_ context.Context) ([]Node, error) {
 
 func (stub *stubReads) ListReplicaSets(_ context.Context, _ string) ([]ReplicaSet, error) {
 	return stub.replicaSets, nil
+}
+
+func (stub *stubReads) ClusterInfo(_ context.Context, name, region string) (ClusterInfo, error) {
+	stub.lastInfoName = name
+	stub.lastInfoRegion = region
+	if stub.clusterInfo == nil {
+		return ClusterInfo{Name: name, Region: region, Healthy: true}, nil
+	}
+	return *stub.clusterInfo, nil
 }
 
 // stubOps is the Operations test double. All call recording is on a pointer

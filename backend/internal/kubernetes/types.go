@@ -12,12 +12,22 @@ type Deployment struct {
 	Paused            bool   `json:"paused"`
 }
 
-// Pod is the JSON shape returned by ListPods.
+// Pod is the JSON shape returned by ListPods. NodeName, RestartCount, and
+// CreatedAt are populated so the UI can map pods onto nodes, render restart
+// counts, and compute pod age without synthesizing those fields client-side.
+// CPUUsage/MemoryUsage are 0..1 fractions of the pod's own ceiling: sum of
+// container limits when set, sum of requests otherwise, host allocatable as
+// a final fallback for unbounded pods. Zero when metrics-server is missing.
 type Pod struct {
-	Name      string            `json:"name"`
-	Namespace string            `json:"namespace"`
-	Phase     string            `json:"phase"`
-	Labels    map[string]string `json:"labels,omitempty"`
+	Name         string            `json:"name"`
+	Namespace    string            `json:"namespace"`
+	Phase        string            `json:"phase"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	NodeName     string            `json:"nodeName,omitempty"`
+	RestartCount int32             `json:"restartCount"`
+	CreatedAt    time.Time         `json:"createdAt"`
+	CPUUsage     float64           `json:"cpuUsage"`
+	MemoryUsage  float64           `json:"memoryUsage"`
 }
 
 // Event is the JSON shape returned by ListEvents.
@@ -74,10 +84,30 @@ type Namespace struct {
 	Phase string `json:"phase,omitempty"`
 }
 
-// Node is intentionally name-only. Per implementation §2.2 we never expose
-// addresses, capacity, or labels — those would leak topology to any caller.
+// Node carries the topology + capacity fields the UI needs to render a real
+// cluster map. Addresses and arbitrary labels stay off the wire — those would
+// leak topology beyond what the operator console needs. CPUUsage/MemoryUsage
+// are 0..1 fractions of allocatable derived from metrics-server; they stay
+// zero when metrics-server is unreachable or hasn't reported yet.
 type Node struct {
-	Name string `json:"name"`
+	Name           string  `json:"name"`
+	Zone           string  `json:"zone,omitempty"`
+	InstanceType   string  `json:"instanceType,omitempty"`
+	PodCapacity    int64   `json:"podCapacity"`
+	CPUCapacity    string  `json:"cpuCapacity,omitempty"`
+	MemoryCapacity string  `json:"memoryCapacity,omitempty"`
+	CPUUsage       float64 `json:"cpuUsage"`
+	MemoryUsage    float64 `json:"memoryUsage"`
+	Ready          bool    `json:"ready"`
+}
+
+// ClusterInfo identifies the cluster the backend is talking to. Name and
+// Region come from configuration; Healthy is computed from a discovery probe
+// so a stale/disconnected cluster is visible to operators at a glance.
+type ClusterInfo struct {
+	Name    string `json:"name"`
+	Region  string `json:"region"`
+	Healthy bool   `json:"healthy"`
 }
 
 // ReplicaSet carries enough revision info for the planner to map ReplicaSets

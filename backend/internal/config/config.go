@@ -8,6 +8,7 @@ import (
 type Settings struct {
 	Kubeconfig  string
 	AWSRegion   string
+	ClusterName string
 	CORSOrigins []string
 }
 
@@ -15,6 +16,7 @@ func Load() Settings {
 	return Settings{
 		Kubeconfig:  getenv("KUBECONFIG", ""),
 		AWSRegion:   getenv("AWS_REGION", "us-east-1"),
+		ClusterName: getenv("CLUSTER_NAME", "eks-cluster"),
 		CORSOrigins: splitCSV(getenv("CORS_ORIGINS", "http://localhost:5173")),
 	}
 }

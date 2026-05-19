@@ -22,7 +22,10 @@ func main() {
 		address = ":8000"
 	}
 
-	deps := server.Deps{}
+	deps := server.Deps{
+		ClusterName:   settings.ClusterName,
+		ClusterRegion: settings.AWSRegion,
+	}
 	if kubeClient, err := kubernetes.NewClient(settings); err != nil {
 		// In local-dev with no KUBECONFIG, the cluster routes simply stay
 		// unmounted. Log and continue rather than refusing to start - /health

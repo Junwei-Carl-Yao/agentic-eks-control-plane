@@ -4,6 +4,14 @@ import { clusterApi } from '@/api/client';
 
 const POLL_INTERVAL_MS = 5000;
 
+export function useClusterInfo() {
+  return useQuery({
+    queryKey: ['cluster-info'],
+    queryFn: () => clusterApi.info(),
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+}
+
 export function useNamespaces() {
   return useQuery({
     queryKey: ['namespaces'],

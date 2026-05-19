@@ -116,9 +116,9 @@ describe('tool surface omits blocked categories (requirement.md Blocked)', () =>
   });
 
   it('tool names are exactly what the spec §4.2 enumerates', () => {
-    // Spec §4.2 enumerates 12 read tools + 5 write tools = 17. The agent must
-    // not invent new ones (extras would expand the agent's capability surface
-    // beyond what the backend deliberately exposes).
-    expect(registeredNames.length).toBe(17);
+    // Spec §4.2 enumerates the read + write tools the backend exposes. The
+    // agent must not invent new ones (extras would expand its capability
+    // surface beyond what the backend deliberately exposes).
+    expect(registeredNames.length).toBe(18);
   });
 });

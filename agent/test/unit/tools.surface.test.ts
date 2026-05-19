@@ -15,6 +15,7 @@ import { installMockFetch, parseUrl, type MockFetchHandle } from './testUtils.js
 // The spec list (implementation.md §4.2). Tests fail if the runtime drifts.
 const SPEC_TOOLS_READ = [
   'health_check',
+  'cluster_info',
   'list_deployments',
   'get_deployment',
   'list_pods',
@@ -229,9 +230,9 @@ describe('tool -> backend route mapping', () => {
     }
   });
 
-  it('list_namespaces, list_nodes, health_check accept empty input and emit no query string', async () => {
+  it('list_namespaces, list_nodes, health_check, cluster_info accept empty input and emit no query string', async () => {
     setupOk([]);
-    const noArgTools = ['list_namespaces', 'list_nodes', 'health_check'];
+    const noArgTools = ['list_namespaces', 'list_nodes', 'health_check', 'cluster_info'];
     for (const toolName of noArgTools) {
       mock.recorded.length = 0;
       const tool = getTool(toolName);
@@ -242,13 +243,15 @@ describe('tool -> backend route mapping', () => {
       const parsed = parseUrl(call.url);
       expect(parsed.query, `${toolName} sent unexpected query params`).toEqual({});
     }
-    // re-check the namespace/nodes paths individually (handler ordering
-    // matters; replay them in isolation).
+    // re-check each path individually (handler ordering matters; replay them
+    // in isolation).
     mock.recorded.length = 0;
     await getTool('list_namespaces').handler({}, {});
     expect(parseUrl(mock.recorded[0]!.url).path).toBe('/api/cluster/namespaces');
     await getTool('list_nodes').handler({}, {});
     expect(parseUrl(mock.recorded[1]!.url).path).toBe('/api/cluster/nodes');
+    await getTool('cluster_info').handler({}, {});
+    expect(parseUrl(mock.recorded[2]!.url).path).toBe('/api/cluster/info');
   });
 
   it('scale -> POST /api/operations/scale with namespace, name, replicas', async () => {

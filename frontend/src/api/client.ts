@@ -2,6 +2,7 @@ import axios, { AxiosError } from 'axios';
 
 import type {
   ClusterEvent,
+  ClusterInfo,
   DenialResponse,
   Deployment,
   HorizontalPodAutoscaler,
@@ -69,6 +70,7 @@ async function get<T>(path: string, params?: Record<string, string>): Promise<T>
 }
 
 export const clusterApi = {
+  info: () => get<ClusterInfo>('/api/cluster/info'),
   listNamespaces: () => get<Namespace[]>('/api/cluster/namespaces'),
   listNodes: () => get<Node[]>('/api/cluster/nodes'),
   listDeployments: (namespace: string) =>

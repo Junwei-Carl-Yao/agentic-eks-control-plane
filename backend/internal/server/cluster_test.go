@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"eks-control-plane/backend/internal/config"
 	"eks-control-plane/backend/internal/guardrails"
 )
 
@@ -221,6 +222,55 @@ func TestListNodes_BypassesEnforcer(t *testing.T) {
 	_ = json.NewDecoder(responseRecorder.Body).Decode(&nodeList)
 	if len(nodeList) != 1 || nodeList[0].Name != "ip-10-0-0-1" {
 		t.Errorf("nodes = %+v, want [ip-10-0-0-1]", nodeList)
+	}
+}
+
+// Scenario: GET /api/cluster/info → 200 with the cluster name/region passed
+// through from Deps plus the reader's healthy flag. The route bypasses the
+// enforcer; the response carries no namespace-scoped data.
+func TestClusterInfo_ReturnsConfiguredIdentity(t *testing.T) {
+	readsStub := &stubReads{clusterInfo: &ClusterInfo{Name: "eks-demo", Region: "us-east-1", Healthy: true}}
+	handler := New(config.Settings{}, Deps{
+		Reader:        readsStub,
+		Enforcer:      permissiveEnforcer(),
+		ClusterName:   "eks-demo",
+		ClusterRegion: "us-east-1",
+	})
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/api/cluster/info", nil))
+	if responseRecorder.Code != 200 {
+		t.Fatalf("status = %d, want 200; body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	var info ClusterInfo
+	if err := json.NewDecoder(responseRecorder.Body).Decode(&info); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if info.Name != "eks-demo" || info.Region != "us-east-1" || !info.Healthy {
+		t.Errorf("info = %+v, want eks-demo/us-east-1/healthy", info)
+	}
+	if readsStub.lastInfoName != "eks-demo" || readsStub.lastInfoRegion != "us-east-1" {
+		t.Errorf("reader saw (%q,%q), want (eks-demo,us-east-1)", readsStub.lastInfoName, readsStub.lastInfoRegion)
+	}
+}
+
+// Scenario: reader reports Healthy=false → route forwards the unhealthy flag
+// unchanged. The frontend uses this to swap its cluster dot red and surface a
+// "disconnected" label; the response must reflect the reader's verdict
+// verbatim instead of defaulting to healthy.
+func TestClusterInfo_PropagatesUnhealthyFlag(t *testing.T) {
+	readsStub := &stubReads{clusterInfo: &ClusterInfo{Name: "eks-demo", Region: "us-east-1", Healthy: false}}
+	handler := New(config.Settings{}, Deps{
+		Reader:        readsStub,
+		Enforcer:      permissiveEnforcer(),
+		ClusterName:   "eks-demo",
+		ClusterRegion: "us-east-1",
+	})
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/api/cluster/info", nil))
+	var info ClusterInfo
+	_ = json.NewDecoder(responseRecorder.Body).Decode(&info)
+	if info.Healthy {
+		t.Errorf("info.Healthy = true, want false (reader reported unhealthy)")
 	}
 }
 

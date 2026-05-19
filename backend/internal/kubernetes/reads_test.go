@@ -4,6 +4,7 @@ package kubernetes
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // Scenario: namespace contains N deployments → ListDeployments returns all of them.
@@ -157,17 +158,195 @@ func TestListNamespaces_ReturnsAll(t *testing.T) {
 	}
 }
 
-// Scenario: nodes seeded → ListNodes returns names only. The Phase 2.2 contract
-// says we never expose addresses/capacity/labels — guard the contract here so
-// a future refactor doesn't accidentally widen the projection.
-func TestListNodes_ReturnsNamesOnly(t *testing.T) {
+// Scenario: bare nodes (no labels, no allocatable, no Ready condition) still
+// list — the DTO leaves the topology/capacity fields zero rather than failing.
+func TestListNodes_BareNodeStillLists(t *testing.T) {
 	kubeClient := newFakeClient(t, withNode("ip-10-0-0-1"), withNode("ip-10-0-0-2"))
 	nodes, err := kubeClient.ListNodes(context.Background())
 	if err != nil || len(nodes) != 2 {
 		t.Fatalf("ListNodes: (%v, %v)", nodes, err)
 	}
-	if nodes[0].Name == "" || nodes[1].Name == "" {
-		t.Errorf("nodes missing names: %+v", nodes)
+	for _, node := range nodes {
+		if node.Name == "" {
+			t.Errorf("node missing name: %+v", node)
+		}
+		if node.Ready {
+			t.Errorf("bare node should not report ready: %+v", node)
+		}
+	}
+}
+
+// Scenario: detailed nodes → ListNodes carries zone, instance type, pod
+// capacity, CPU/memory capacity, and Ready through to the DTO. These are the
+// fields the operator console reads to render zones, capacity bars, and node
+// status without synthesizing values on the frontend.
+func TestListNodes_ExposesTopologyAndCapacity(t *testing.T) {
+	kubeClient := newFakeClient(t,
+		withNodeDetailed("ip-10-0-0-1", "us-east-1a", "m5.xlarge", 58, "4", "16Gi", true),
+	)
+	nodes, err := kubeClient.ListNodes(context.Background())
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("ListNodes: (%v, %v)", nodes, err)
+	}
+	node := nodes[0]
+	if node.Zone != "us-east-1a" {
+		t.Errorf("zone = %q, want us-east-1a", node.Zone)
+	}
+	if node.InstanceType != "m5.xlarge" {
+		t.Errorf("instanceType = %q, want m5.xlarge", node.InstanceType)
+	}
+	if node.PodCapacity != 58 {
+		t.Errorf("podCapacity = %d, want 58", node.PodCapacity)
+	}
+	if node.CPUCapacity != "4" || node.MemoryCapacity != "16Gi" {
+		t.Errorf("cpu/mem = %q/%q, want 4/16Gi", node.CPUCapacity, node.MemoryCapacity)
+	}
+	if !node.Ready {
+		t.Errorf("ready = false, want true")
+	}
+}
+
+// Scenario: metrics-server reports usage for a node → ListNodes returns the
+// utilization as a 0..1 fraction of allocatable. We check the fraction is in
+// the expected range (1500m / 4 cores ≈ 0.375; 8Gi / 16Gi = 0.5) rather than
+// asserting an exact float, since AsApproximateFloat64 is, well, approximate.
+func TestListNodes_MergesMetricsServerUsage(t *testing.T) {
+	kubeClient := newFakeClient(t,
+		withNodeDetailed("ip-10-0-0-1", "us-east-1a", "m5.xlarge", 58, "4", "16Gi", true),
+		withNodeMetrics("ip-10-0-0-1", "1500m", "8Gi"),
+	)
+	nodes, err := kubeClient.ListNodes(context.Background())
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("ListNodes: (%v, %v)", nodes, err)
+	}
+	if got := nodes[0].CPUUsage; got < 0.37 || got > 0.38 {
+		t.Errorf("cpuUsage = %f, want ~0.375", got)
+	}
+	if got := nodes[0].MemoryUsage; got < 0.49 || got > 0.51 {
+		t.Errorf("memoryUsage = %f, want ~0.5", got)
+	}
+}
+
+// Scenario: no metrics record for a node → usage fields stay at zero, list
+// still succeeds. metrics-server is optional; missing data should never sink
+// the read.
+func TestListNodes_MetricsMissingLeavesUsageZero(t *testing.T) {
+	kubeClient := newFakeClient(t,
+		withNodeDetailed("ip-10-0-0-1", "us-east-1a", "m5.xlarge", 58, "4", "16Gi", true),
+	)
+	nodes, err := kubeClient.ListNodes(context.Background())
+	if err != nil || len(nodes) != 1 {
+		t.Fatalf("ListNodes: (%v, %v)", nodes, err)
+	}
+	if nodes[0].CPUUsage != 0 || nodes[0].MemoryUsage != 0 {
+		t.Errorf("usage = %f/%f, want 0/0", nodes[0].CPUUsage, nodes[0].MemoryUsage)
+	}
+}
+
+// Scenario: pod has no limits or requests → host node's allocatable is used
+// as the fallback denominator. 500m / 4 cores ≈ 0.125 cpu; 2Gi / 16Gi = 0.125
+// mem. This is the "BestEffort QoS" path — at least operators see something
+// instead of NaN for unbounded pods.
+func TestListPods_UnboundedPodFallsBackToHostAllocatable(t *testing.T) {
+	created := time.Now().Add(-1 * time.Hour).UTC()
+	kubeClient := newFakeClient(t,
+		withNodeDetailed("ip-10-0-0-1", "us-east-1a", "m5.xlarge", 58, "4", "16Gi", true),
+		withScheduledPod("app", "web-1", "ip-10-0-0-1", 0, created),
+		withPodMetrics("app", "web-1", "500m", "2Gi"),
+	)
+	pods, err := kubeClient.ListPods(context.Background(), "app", "")
+	if err != nil || len(pods) != 1 {
+		t.Fatalf("ListPods: (%v, %v)", pods, err)
+	}
+	if got := pods[0].CPUUsage; got < 0.12 || got > 0.13 {
+		t.Errorf("cpuUsage = %f, want ~0.125", got)
+	}
+	if got := pods[0].MemoryUsage; got < 0.12 || got > 0.13 {
+		t.Errorf("memoryUsage = %f, want ~0.125", got)
+	}
+}
+
+// Scenario: pod sets container limits → those (not host allocatable) are the
+// denominator. 50m usage against a 100m CPU limit = 0.5; 64Mi against 128Mi
+// memory limit = 0.5. This is the change that makes "real" demo loads
+// visible on the bar instead of rounding to zero.
+func TestListPods_LimitsDriveTheBarDenominator(t *testing.T) {
+	created := time.Now().Add(-1 * time.Hour).UTC()
+	kubeClient := newFakeClient(t,
+		withNodeDetailed("ip-10-0-0-1", "us-east-1a", "m5.xlarge", 58, "4", "16Gi", true),
+		withScheduledPodLimits("app", "web-1", "ip-10-0-0-1", created, "100m", "128Mi", "10m", "32Mi"),
+		withPodMetrics("app", "web-1", "50m", "64Mi"),
+	)
+	pods, err := kubeClient.ListPods(context.Background(), "app", "")
+	if err != nil || len(pods) != 1 {
+		t.Fatalf("ListPods: (%v, %v)", pods, err)
+	}
+	if got := pods[0].CPUUsage; got < 0.49 || got > 0.51 {
+		t.Errorf("cpuUsage = %f, want ~0.5 (limits-relative)", got)
+	}
+	if got := pods[0].MemoryUsage; got < 0.49 || got > 0.51 {
+		t.Errorf("memoryUsage = %f, want ~0.5 (limits-relative)", got)
+	}
+}
+
+// Scenario: pod has requests but no limits → requests are the denominator
+// (one tier softer than limits, still tighter than host allocatable).
+func TestListPods_RequestsUsedWhenLimitsAbsent(t *testing.T) {
+	created := time.Now().Add(-1 * time.Hour).UTC()
+	kubeClient := newFakeClient(t,
+		withNodeDetailed("ip-10-0-0-1", "us-east-1a", "m5.xlarge", 58, "4", "16Gi", true),
+		withScheduledPodLimits("app", "web-1", "ip-10-0-0-1", created, "", "", "200m", "256Mi"),
+		withPodMetrics("app", "web-1", "50m", "64Mi"),
+	)
+	pods, err := kubeClient.ListPods(context.Background(), "app", "")
+	if err != nil || len(pods) != 1 {
+		t.Fatalf("ListPods: (%v, %v)", pods, err)
+	}
+	// 50m / 200m = 0.25; 64Mi / 256Mi = 0.25.
+	if got := pods[0].CPUUsage; got < 0.24 || got > 0.26 {
+		t.Errorf("cpuUsage = %f, want ~0.25 (requests-relative)", got)
+	}
+	if got := pods[0].MemoryUsage; got < 0.24 || got > 0.26 {
+		t.Errorf("memoryUsage = %f, want ~0.25 (requests-relative)", got)
+	}
+}
+
+// Scenario: pods now carry the scheduling and restart info the UI needs to
+// place them on nodes without hashing their names.
+func TestListPods_CarriesSchedulingAndRestarts(t *testing.T) {
+	created := time.Now().Add(-3 * time.Hour).UTC()
+	kubeClient := newFakeClient(t,
+		withScheduledPod("app", "web-1", "ip-10-0-0-1", 7, created),
+	)
+	pods, err := kubeClient.ListPods(context.Background(), "app", "")
+	if err != nil || len(pods) != 1 {
+		t.Fatalf("ListPods: (%v, %v)", pods, err)
+	}
+	pod := pods[0]
+	if pod.NodeName != "ip-10-0-0-1" {
+		t.Errorf("nodeName = %q, want ip-10-0-0-1", pod.NodeName)
+	}
+	if pod.RestartCount != 7 {
+		t.Errorf("restartCount = %d, want 7", pod.RestartCount)
+	}
+	if !pod.CreatedAt.Equal(created) {
+		t.Errorf("createdAt = %v, want %v", pod.CreatedAt, created)
+	}
+}
+
+// Scenario: ClusterInfo returns the configured name/region verbatim and a
+// healthy flag derived from the apiserver discovery probe.
+func TestClusterInfo_ReturnsConfiguredIdentityAndHealth(t *testing.T) {
+	kubeClient := newFakeClient(t)
+	info, err := kubeClient.ClusterInfo(context.Background(), "eks-demo", "us-east-1")
+	if err != nil {
+		t.Fatalf("ClusterInfo: %v", err)
+	}
+	if info.Name != "eks-demo" || info.Region != "us-east-1" {
+		t.Errorf("identity = %+v, want eks-demo/us-east-1", info)
+	}
+	if !info.Healthy {
+		t.Errorf("fake clientset should report healthy")
 	}
 }
 

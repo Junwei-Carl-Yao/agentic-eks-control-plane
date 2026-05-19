@@ -14,10 +14,14 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
+	clienttesting "k8s.io/client-go/testing"
+	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
+	metricsfake "k8s.io/metrics/pkg/client/clientset/versioned/fake"
 )
 
 // fakeOption seeds objects into the fake clientset before it's wrapped in a
@@ -25,8 +29,10 @@ import (
 type fakeOption func(*fakeBuilder)
 
 type fakeBuilder struct {
-	objects []runtime.Object
-	logs    map[logKey]string
+	objects     []runtime.Object
+	nodeMetrics []metricsv1beta1.NodeMetrics
+	podMetrics  []metricsv1beta1.PodMetrics
+	logs        map[logKey]string
 }
 
 type logKey struct{ namespace, pod, container string }
@@ -40,8 +46,31 @@ func newFakeClient(t *testing.T, options ...fakeOption) *Client {
 		option(builder)
 	}
 	clientset := fake.NewSimpleClientset(builder.objects...)
+	// metricsfake's tracker doesn't surface NodeMetricsList on List(), so we
+	// install a reactor that hands back whatever the test seeded. Empty list
+	// reactor stands in for "metrics-server installed but no metrics yet".
+	metricsClientset := metricsfake.NewSimpleClientset()
+	seededNodeMetrics := append([]metricsv1beta1.NodeMetrics(nil), builder.nodeMetrics...)
+	metricsClientset.PrependReactor("list", "nodes", func(_ clienttesting.Action) (bool, runtime.Object, error) {
+		return true, &metricsv1beta1.NodeMetricsList{Items: seededNodeMetrics}, nil
+	})
+	seededPodMetrics := append([]metricsv1beta1.PodMetrics(nil), builder.podMetrics...)
+	metricsClientset.PrependReactor("list", "pods", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		namespace := action.GetNamespace()
+		if namespace == "" {
+			return true, &metricsv1beta1.PodMetricsList{Items: seededPodMetrics}, nil
+		}
+		filtered := make([]metricsv1beta1.PodMetrics, 0, len(seededPodMetrics))
+		for _, podMetrics := range seededPodMetrics {
+			if podMetrics.Namespace == namespace {
+				filtered = append(filtered, podMetrics)
+			}
+		}
+		return true, &metricsv1beta1.PodMetricsList{Items: filtered}, nil
+	})
 	return &Client{
 		kubernetesInterface: clientset,
+		metricsInterface:    metricsClientset,
 		logs:                &memLogSource{logs: builder.logs},
 	}
 }
@@ -169,12 +198,42 @@ func withNamespace(name string) fakeOption {
 	}
 }
 
-// withNode seeds a Node — we never expose anything but the name, so the
-// fixture is intentionally bare.
+// withNode seeds a bare Node — no labels, no allocatable, no Ready condition.
+// Useful for exercising the zero-value branches of nodeDTO.
 func withNode(name string) fakeOption {
 	return func(builder *fakeBuilder) {
 		builder.objects = append(builder.objects, &corev1.Node{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
+		})
+	}
+}
+
+// withNodeDetailed seeds a Node populated with the topology labels, allocatable
+// resources, and Ready condition that nodeDTO projects onto the wire.
+func withNodeDetailed(name, zone, instanceType string, podCapacity int64, cpu, memory string, ready bool) fakeOption {
+	return func(builder *fakeBuilder) {
+		condition := corev1.ConditionFalse
+		if ready {
+			condition = corev1.ConditionTrue
+		}
+		builder.objects = append(builder.objects, &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+				Labels: map[string]string{
+					corev1.LabelTopologyZone:       zone,
+					corev1.LabelInstanceTypeStable: instanceType,
+				},
+			},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					corev1.ResourcePods:   *resource.NewQuantity(podCapacity, resource.DecimalSI),
+					corev1.ResourceCPU:    resource.MustParse(cpu),
+					corev1.ResourceMemory: resource.MustParse(memory),
+				},
+				Conditions: []corev1.NodeCondition{
+					{Type: corev1.NodeReady, Status: condition},
+				},
+			},
 		})
 	}
 }
@@ -187,6 +246,105 @@ func withPod(namespace, name string, labels map[string]string) fakeOption {
 				Namespace: namespace,
 				Name:      name,
 				Labels:    labels,
+			},
+		})
+	}
+}
+
+// withNodeMetrics seeds a metrics-server NodeMetrics record for a node. The
+// cpu/memory args are raw Quantity strings, e.g. "1500m", "8Gi" — the same
+// shape `kubectl top node` reports.
+func withNodeMetrics(name, cpu, memory string) fakeOption {
+	return func(builder *fakeBuilder) {
+		builder.nodeMetrics = append(builder.nodeMetrics, metricsv1beta1.NodeMetrics{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Usage: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse(cpu),
+				corev1.ResourceMemory: resource.MustParse(memory),
+			},
+		})
+	}
+}
+
+// withPodMetrics seeds a metrics-server PodMetrics record. The cpu/memory
+// args are summed across a single container the same way the production
+// shape would after the pod's containers report.
+func withPodMetrics(namespace, name, cpu, memory string) fakeOption {
+	return func(builder *fakeBuilder) {
+		builder.podMetrics = append(builder.podMetrics, metricsv1beta1.PodMetrics{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+			Containers: []metricsv1beta1.ContainerMetrics{
+				{
+					Name: "app",
+					Usage: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse(cpu),
+						corev1.ResourceMemory: resource.MustParse(memory),
+					},
+				},
+			},
+		})
+	}
+}
+
+// withScheduledPodLimits seeds a pod placed on a node with explicit CPU/mem
+// limits and requests on its single container. Empty strings skip that field
+// so callers can exercise the limits-only, requests-only, or unbounded paths
+// in podResourceCeiling. Always uses Running phase + zero restarts.
+func withScheduledPodLimits(namespace, name, nodeName string, createdAt time.Time, cpuLimit, memoryLimit, cpuRequest, memoryRequest string) fakeOption {
+	return func(builder *fakeBuilder) {
+		container := corev1.Container{Name: "app"}
+		container.Resources = corev1.ResourceRequirements{
+			Limits:   corev1.ResourceList{},
+			Requests: corev1.ResourceList{},
+		}
+		if cpuLimit != "" {
+			container.Resources.Limits[corev1.ResourceCPU] = resource.MustParse(cpuLimit)
+		}
+		if memoryLimit != "" {
+			container.Resources.Limits[corev1.ResourceMemory] = resource.MustParse(memoryLimit)
+		}
+		if cpuRequest != "" {
+			container.Resources.Requests[corev1.ResourceCPU] = resource.MustParse(cpuRequest)
+		}
+		if memoryRequest != "" {
+			container.Resources.Requests[corev1.ResourceMemory] = resource.MustParse(memoryRequest)
+		}
+		builder.objects = append(builder.objects, &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:         namespace,
+				Name:              name,
+				CreationTimestamp: metav1.NewTime(createdAt),
+			},
+			Spec: corev1.PodSpec{
+				NodeName:   nodeName,
+				Containers: []corev1.Container{container},
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{
+					{Name: "app", RestartCount: 0},
+				},
+			},
+		})
+	}
+}
+
+// withScheduledPod seeds a pod placed on a node, with a creation timestamp and
+// a single container that has restarted `restarts` times.
+func withScheduledPod(namespace, name, nodeName string, restarts int32, createdAt time.Time) fakeOption {
+	return func(builder *fakeBuilder) {
+		builder.objects = append(builder.objects, &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:         namespace,
+				Name:              name,
+				CreationTimestamp: metav1.NewTime(createdAt),
+			},
+			Spec: corev1.PodSpec{NodeName: nodeName},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{
+					{Name: "app", RestartCount: restarts},
+				},
 			},
 		})
 	}

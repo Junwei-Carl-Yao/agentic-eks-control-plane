@@ -19,6 +19,7 @@ type (
 	Namespace               = kubernetes.Namespace
 	Node                    = kubernetes.Node
 	ReplicaSet              = kubernetes.ReplicaSet
+	ClusterInfo             = kubernetes.ClusterInfo
 )
 
 // ClusterReader is the read-only seam for the cluster routes. It exists so
@@ -36,6 +37,7 @@ type ClusterReader interface {
 	ListNamespaces(ctx context.Context) ([]Namespace, error)
 	ListNodes(ctx context.Context) ([]Node, error)
 	ListReplicaSets(ctx context.Context, namespace string) ([]ReplicaSet, error)
+	ClusterInfo(ctx context.Context, name, region string) (ClusterInfo, error)
 }
 
 // Operations is the mutation seam. The Phase 3 enforcer wraps each method on
@@ -52,8 +54,11 @@ type Operations interface {
 // silently disables that route group, which keeps NewServer composable for
 // degraded environments and per-feature tests. Mounting Ops requires a
 // non-nil Enforcer — operations may not be exposed without a chokepoint.
+// ClusterName / ClusterRegion are surfaced verbatim by /api/cluster/info.
 type Deps struct {
-	Reader   ClusterReader
-	Ops      Operations
-	Enforcer *guardrails.Enforcer
+	Reader        ClusterReader
+	Ops           Operations
+	Enforcer      *guardrails.Enforcer
+	ClusterName   string
+	ClusterRegion string
 }

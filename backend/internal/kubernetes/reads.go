@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -45,15 +46,20 @@ func (client *Client) GetDeployment(ctx context.Context, namespace, name string)
 }
 
 // ListPods returns pods in the namespace, optionally filtered by labelSelector.
-// Empty selector returns every pod.
+// Empty selector returns every pod. CPU/memory usage is joined in from
+// metrics-server (PodMetrics) and divided by the host node's allocatable so
+// the UI gets the same 0..1 scale the node bars already use.
 func (client *Client) ListPods(ctx context.Context, namespace, labelSelector string) ([]Pod, error) {
 	list, err := client.kubernetesInterface.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: list pods: %w", err)
 	}
+	podUsageByName := client.podMetricsByName(ctx, namespace)
+	nodeAllocatableByName := client.nodeAllocatableByName(ctx)
 	pods := make([]Pod, 0, len(list.Items))
 	for index := range list.Items {
-		pods = append(pods, podDTO(&list.Items[index]))
+		pod := &list.Items[index]
+		pods = append(pods, podDTO(pod, podUsageByName[pod.Name], nodeAllocatableByName[pod.Spec.NodeName]))
 	}
 	return pods, nil
 }
@@ -131,18 +137,122 @@ func (client *Client) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 	return namespaces, nil
 }
 
-// ListNodes returns node names only — no addresses, capacity, or labels —
-// per the Phase 2.2 contract that we do not leak topology to any caller.
+// ListNodes returns nodes with zone, instance type, allocatable pod capacity,
+// CPU/memory capacity, readiness, and live CPU/memory usage from metrics-
+// server. Node addresses and arbitrary labels are stripped. If metrics-server
+// is unreachable the usage fields stay at zero — the bars render empty rather
+// than the whole list failing.
 func (client *Client) ListNodes(ctx context.Context) ([]Node, error) {
 	list, err := client.kubernetesInterface.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: list nodes: %w", err)
 	}
+	usage := client.nodeMetricsByName(ctx)
 	nodes := make([]Node, 0, len(list.Items))
 	for index := range list.Items {
-		nodes = append(nodes, Node{Name: list.Items[index].Name})
+		nodes = append(nodes, nodeDTO(&list.Items[index], usage[list.Items[index].Name]))
 	}
 	return nodes, nil
+}
+
+// nodeUsage is the bit of metrics-server data the DTO consumes — already
+// resolved against allocatable so the caller doesn't have to repeat the
+// division. Both fields are 0..1 fractions (clamped on the way out).
+type nodeUsage struct {
+	cpu    float64
+	memory float64
+}
+
+// podUsage carries a pod's summed container usage in raw units (cores +
+// bytes). The fraction-of-node is computed later, once we know the host.
+type podUsage struct {
+	cpu    float64
+	memory float64
+}
+
+// nodeCapacity holds the allocatable Quantities the pod DTO divides into to
+// arrive at the 0..1 usage fraction.
+type nodeCapacity struct {
+	cpu    resource.Quantity
+	memory resource.Quantity
+}
+
+func (client *Client) podMetricsByName(ctx context.Context, namespace string) map[string]podUsage {
+	if client.metricsInterface == nil {
+		return nil
+	}
+	list, err := client.metricsInterface.MetricsV1beta1().PodMetricses(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	usage := make(map[string]podUsage, len(list.Items))
+	for index := range list.Items {
+		podMetrics := &list.Items[index]
+		var cpu, memory float64
+		for _, container := range podMetrics.Containers {
+			cpuQuantity := container.Usage[corev1.ResourceCPU]
+			memoryQuantity := container.Usage[corev1.ResourceMemory]
+			cpu += cpuQuantity.AsApproximateFloat64()
+			memory += memoryQuantity.AsApproximateFloat64()
+		}
+		usage[podMetrics.Name] = podUsage{cpu: cpu, memory: memory}
+	}
+	return usage
+}
+
+// nodeAllocatableByName fetches every node's allocatable CPU/memory so pod
+// DTOs can compute their host-relative utilization. We tolerate failure here
+// the same way we tolerate missing metrics: pod bars stay at zero rather than
+// sinking the read.
+func (client *Client) nodeAllocatableByName(ctx context.Context) map[string]nodeCapacity {
+	list, err := client.kubernetesInterface.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]nodeCapacity, len(list.Items))
+	for index := range list.Items {
+		node := &list.Items[index]
+		out[node.Name] = nodeCapacity{
+			cpu:    node.Status.Allocatable[corev1.ResourceCPU],
+			memory: node.Status.Allocatable[corev1.ResourceMemory],
+		}
+	}
+	return out
+}
+
+func (client *Client) nodeMetricsByName(ctx context.Context) map[string]nodeUsage {
+	if client.metricsInterface == nil {
+		return nil
+	}
+	list, err := client.metricsInterface.MetricsV1beta1().NodeMetricses().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		// metrics-server not installed, RBAC missing, or transient — return
+		// nothing; ListNodes already handles a zero map.
+		return nil
+	}
+	usage := make(map[string]nodeUsage, len(list.Items))
+	for index := range list.Items {
+		nodeMetrics := &list.Items[index]
+		cpu := nodeMetrics.Usage[corev1.ResourceCPU]
+		memory := nodeMetrics.Usage[corev1.ResourceMemory]
+		usage[nodeMetrics.Name] = nodeUsage{
+			cpu:    cpu.AsApproximateFloat64(),
+			memory: memory.AsApproximateFloat64(),
+		}
+	}
+	return usage
+}
+
+// ClusterInfo returns the cluster's identity plus a health probe result.
+// Name/region come from configuration; healthy reflects whether the apiserver
+// answered a discovery call right now.
+func (client *Client) ClusterInfo(_ context.Context, name, region string) (ClusterInfo, error) {
+	_, err := client.kubernetesInterface.Discovery().ServerVersion()
+	return ClusterInfo{
+		Name:    name,
+		Region:  region,
+		Healthy: err == nil,
+	}, nil
 }
 
 // ListReplicaSets returns ReplicaSets in a namespace with revision metadata.
@@ -220,13 +330,114 @@ func deploymentDTO(deployment *appsv1.Deployment) Deployment {
 	}
 }
 
-func podDTO(pod *corev1.Pod) Pod {
-	return Pod{
-		Name:      pod.Name,
-		Namespace: pod.Namespace,
-		Phase:     string(pod.Status.Phase),
-		Labels:    pod.Labels,
+func podDTO(pod *corev1.Pod, usage podUsage, host nodeCapacity) Pod {
+	var restarts int32
+	for _, status := range pod.Status.ContainerStatuses {
+		restarts += status.RestartCount
 	}
+	ceiling := podResourceCeiling(pod, host)
+	return Pod{
+		Name:         pod.Name,
+		Namespace:    pod.Namespace,
+		Phase:        string(pod.Status.Phase),
+		Labels:       pod.Labels,
+		NodeName:     pod.Spec.NodeName,
+		RestartCount: restarts,
+		CreatedAt:    pod.CreationTimestamp.Time,
+		CPUUsage:     fractionOf(usage.cpu, ceiling.cpu),
+		MemoryUsage:  fractionOf(usage.memory, ceiling.memory),
+	}
+}
+
+// podResourceCeiling resolves the denominator for a pod's CPU/memory usage:
+// prefer the sum of container limits (the hard ceiling), fall back to the sum
+// of requests (the soft ceiling — "what we asked for"), and finally to the
+// host node's allocatable so unbounded pods still get a meaningful bar.
+func podResourceCeiling(pod *corev1.Pod, hostFallback nodeCapacity) nodeCapacity {
+	var cpuLimit, cpuRequest, memLimit, memRequest resource.Quantity
+	for _, container := range pod.Spec.Containers {
+		if value, ok := container.Resources.Limits[corev1.ResourceCPU]; ok {
+			cpuLimit.Add(value)
+		}
+		if value, ok := container.Resources.Requests[corev1.ResourceCPU]; ok {
+			cpuRequest.Add(value)
+		}
+		if value, ok := container.Resources.Limits[corev1.ResourceMemory]; ok {
+			memLimit.Add(value)
+		}
+		if value, ok := container.Resources.Requests[corev1.ResourceMemory]; ok {
+			memRequest.Add(value)
+		}
+	}
+	return nodeCapacity{
+		cpu:    pickCeiling(cpuLimit, cpuRequest, hostFallback.cpu),
+		memory: pickCeiling(memLimit, memRequest, hostFallback.memory),
+	}
+}
+
+func pickCeiling(limit, request, fallback resource.Quantity) resource.Quantity {
+	if !limit.IsZero() {
+		return limit
+	}
+	if !request.IsZero() {
+		return request
+	}
+	return fallback
+}
+
+// nodeDTO projects a corev1.Node down to the DTO shape — well-known topology
+// labels, allocatable pod count, raw CPU/memory capacity, Ready condition,
+// and (when metrics-server is available) live CPU/memory utilization as a
+// 0..1 fraction of allocatable.
+func nodeDTO(node *corev1.Node, usage nodeUsage) Node {
+	labels := node.Labels
+	allocatable := node.Status.Allocatable
+	podQuantity := allocatable[corev1.ResourcePods]
+	podCapacity, _ := podQuantity.AsInt64()
+	cpuCapacity := allocatable[corev1.ResourceCPU]
+	memoryCapacity := allocatable[corev1.ResourceMemory]
+	ready := false
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == corev1.NodeReady {
+			ready = condition.Status == corev1.ConditionTrue
+			break
+		}
+	}
+	zone := labels[corev1.LabelTopologyZone]
+	if zone == "" {
+		zone = labels["failure-domain.beta.kubernetes.io/zone"]
+	}
+	instanceType := labels[corev1.LabelInstanceTypeStable]
+	if instanceType == "" {
+		instanceType = labels[corev1.LabelInstanceType]
+	}
+	return Node{
+		Name:           node.Name,
+		Zone:           zone,
+		InstanceType:   instanceType,
+		PodCapacity:    podCapacity,
+		CPUCapacity:    cpuCapacity.String(),
+		MemoryCapacity: memoryCapacity.String(),
+		CPUUsage:       fractionOf(usage.cpu, cpuCapacity),
+		MemoryUsage:    fractionOf(usage.memory, memoryCapacity),
+		Ready:          ready,
+	}
+}
+
+// fractionOf returns used / ceiling clamped to [0, 1]. Returns zero when the
+// ceiling is missing so the bar renders empty instead of NaN. Used by both
+// the node DTO (ceiling = allocatable) and the pod DTO (ceiling = limits →
+// requests → host allocatable).
+func fractionOf(used float64, ceiling resource.Quantity) float64 {
+	denominator := ceiling.AsApproximateFloat64()
+	if denominator <= 0 || used <= 0 {
+		return 0
+	}
+	fraction := used / denominator
+	if fraction > 1 {
+		return 1
+	}
+	return fraction
 }
 
 func serviceDTO(service *corev1.Service) Service {

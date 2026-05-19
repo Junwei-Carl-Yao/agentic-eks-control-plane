@@ -1,16 +1,23 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import type { ChatMessage } from '@/hooks/useAgentChat';
 
 import { MessageBubble } from './MessageBubble';
-import { ToolCallBubble } from './ToolCallBubble';
+import { ToolCallBubble, type GuardrailState } from './ToolCallBubble';
 
 interface TranscriptListProps {
   messages: ChatMessage[];
   isStreaming: boolean;
+  onSuggestion?: (text: string) => void;
 }
 
-export function TranscriptList({ messages, isStreaming }: TranscriptListProps) {
+const SUGGESTIONS = [
+  'What pods are failing?',
+  'Scale api to 8 replicas',
+  'Restart the web rollout',
+];
+
+export function TranscriptList({ messages, isStreaming, onSuggestion }: TranscriptListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -20,16 +27,47 @@ export function TranscriptList({ messages, isStreaming }: TranscriptListProps) {
     }
   }, [messages]);
 
+  const guardrailStateByCallId = useMemo(() => {
+    const states = new Map<string, GuardrailState>();
+    for (const message of messages) {
+      if (message.kind === 'tool_result') {
+        states.set(message.callId, message.ok ? 'allow' : 'deny');
+      }
+    }
+    return states;
+  }, [messages]);
+
   if (messages.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-slate-500">
-        Ask the agent about cluster state or request a guardrailed action.
+      <div ref={containerRef} className="cp-transcript">
+        <div className="cp-empty">
+          <div className="cp-empty-title">Ask the agent</div>
+          <div className="cp-empty-sub">
+            It can read cluster state and run guardrailed actions: scale, rollout restart,
+            pause/resume, rollback.
+          </div>
+          {onSuggestion && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {SUGGESTIONS.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  className="cp-suggestion cp-bubble cp-bubble-assistant"
+                  onClick={() => onSuggestion(suggestion)}
+                  style={{ alignSelf: 'stretch', cursor: 'pointer', textAlign: 'left' }}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
   return (
-    <div ref={containerRef} className="flex h-full flex-col gap-2 overflow-y-auto px-3 py-3">
+    <div ref={containerRef} className="cp-transcript">
       {messages.map((message) => {
         switch (message.kind) {
           case 'user':
@@ -44,16 +82,20 @@ export function TranscriptList({ messages, isStreaming }: TranscriptListProps) {
               />
             );
           case 'tool_call':
-            return <ToolCallBubble key={message.id} tool={message.tool} input={message.input} />;
+            return (
+              <ToolCallBubble
+                key={message.id}
+                tool={message.tool}
+                input={message.input}
+                guardrailState={guardrailStateByCallId.get(message.callId) ?? 'pending'}
+              />
+            );
           case 'tool_result':
             return null;
           case 'error':
             return (
-              <div
-                key={message.id}
-                className="self-center rounded border border-rose-700/60 bg-rose-950/40 px-2 py-1 text-xs text-rose-200"
-              >
-                {message.message}
+              <div key={message.id} className="cp-row cp-row-error">
+                <div className="cp-error">{message.message}</div>
               </div>
             );
         }
