@@ -1,58 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import { AxiosError, AxiosHeaders } from 'axios';
 
 import { ZoneMap } from '@/components/ZoneMap';
-import { apiClient } from '@/api/client';
 import { renderWithClient } from '../testUtils';
+import { denialError, mockRouter } from '../mockRouter';
 
 // Spec §3.1 + §5.3: the cluster panel polls the read routes on the allowlisted
 // namespace (api-smoke). A 403 from any single route must surface its
 // guardrail reason without sinking the rest of the view.
-
-function makeAxiosError(status: number, data: unknown, message: string): AxiosError {
-  const headers = new AxiosHeaders();
-  const error = new AxiosError(message, String(status), { headers } as never, null, {
-    status,
-    statusText: '',
-    headers,
-    config: { headers } as never,
-    data,
-  });
-  return error;
-}
-
-function denialError(message: string): AxiosError {
-  return makeAxiosError(
-    403,
-    {
-      error: message,
-      decision: { allow: false, action: 'list_pods', subject: 'ns/foo', reason: message },
-    },
-    message,
-  );
-}
-
-function genericError(status: number, message: string): AxiosError {
-  return makeAxiosError(status, { error: message }, message);
-}
-
-function mockRouter(
-  handlers: Record<string, (params?: Record<string, string>) => unknown | AxiosError>,
-) {
-  return vi.spyOn(apiClient, 'get').mockImplementation((url: string, config?: unknown) => {
-    const params = (config as { params?: Record<string, string> } | undefined)?.params;
-    const handler = handlers[url];
-    if (!handler) {
-      return Promise.reject(genericError(500, `unmocked URL ${url}`));
-    }
-    const result = handler(params);
-    if (result instanceof AxiosError) {
-      return Promise.reject(result);
-    }
-    return Promise.resolve({ data: result });
-  });
-}
 
 beforeEach(() => {
   vi.useRealTimers();
@@ -70,7 +25,6 @@ describe('ZoneMap', () => {
         region: 'us-east-1',
         healthy: true,
       }),
-      '/api/cluster/namespaces': () => [{ name: 'api-smoke' }],
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': () => [],
       '/api/cluster/pods': () => [],

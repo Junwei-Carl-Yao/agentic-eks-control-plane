@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { AxiosError, AxiosHeaders } from 'axios';
 
 import App from '@/App';
 import { ZoneMap } from '@/components/ZoneMap';
 import { apiClient } from '@/api/client';
 import { renderWithClient } from '../testUtils';
+import { mockRouter } from '../mockRouter';
 
 // Spec-derived integration tests for the Zone Map + surrounding shell.
 // Sources of truth (read first, then asserted against the live component):
@@ -29,34 +29,6 @@ import { renderWithClient } from '../testUtils';
 //      (us-east-1a/b/c) — the canonical regional fallback.
 //   7. Theme persists via localStorage under the key `eks-theme` and is
 //      restored on next render.
-
-function makeAxiosError(status: number, data: unknown, message: string): AxiosError {
-  const headers = new AxiosHeaders();
-  return new AxiosError(message, String(status), { headers } as never, null, {
-    status,
-    statusText: '',
-    headers,
-    config: { headers } as never,
-    data,
-  });
-}
-
-interface RouterHandlers {
-  [url: string]: (params?: Record<string, string>) => unknown | AxiosError;
-}
-
-function mockRouter(handlers: RouterHandlers) {
-  return vi.spyOn(apiClient, 'get').mockImplementation((url: string, config?: unknown) => {
-    const params = (config as { params?: Record<string, string> } | undefined)?.params;
-    const handler = handlers[url];
-    if (!handler) {
-      return Promise.reject(makeAxiosError(500, { error: `unmocked ${url}` }, `unmocked ${url}`));
-    }
-    const result = handler(params);
-    if (result instanceof AxiosError) return Promise.reject(result);
-    return Promise.resolve({ data: result });
-  });
-}
 
 beforeEach(() => {
   // Reset persisted UI state so theme tests aren't cross-polluted.

@@ -120,6 +120,7 @@ interface ZoneMapDataState {
   zones: string[];
   podsByNode: Record<string, PodWithDeployment[]>;
   nodesByZone: Record<string, Node[]>;
+  unscheduledPods: PodWithDeployment[];
   summary: { pods: number; healthyPods: number; namespaces: string[] };
   errors: string[];
 }
@@ -161,7 +162,12 @@ export function ZoneMap() {
       zoneSet.size > 0 ? Array.from(zoneSet).sort() : [`${region}a`, `${region}b`, `${region}c`];
 
     const podsByNode: Record<string, PodWithDeployment[]> = {};
+    const unscheduledPods: PodWithDeployment[] = [];
     pods.forEach((pod) => {
+      if (pod.node === UNSCHEDULED_BUCKET) {
+        unscheduledPods.push(pod);
+        return;
+      }
       (podsByNode[pod.node] ||= []).push(pod);
     });
 
@@ -198,6 +204,7 @@ export function ZoneMap() {
       zones,
       podsByNode,
       nodesByZone,
+      unscheduledPods,
       summary,
       errors,
     };
@@ -303,6 +310,27 @@ export function ZoneMap() {
               </div>
             </div>
           ))}
+          {data.unscheduledPods.length > 0 && (
+            <div className="zm-zone zm-zone-unscheduled">
+              <div className="zm-zone-head">
+                <span className="zm-zone-tag">!</span>
+                <span className="zm-zone-name">unscheduled</span>
+                <span className="zm-zone-count">{data.unscheduledPods.length} pods</span>
+              </div>
+              <div className="zm-zone-body">
+                <PodGroupFlow
+                  pods={data.unscheduledPods}
+                  focusedDeployment={focusedDeployment}
+                  focusedPod={focusedPod}
+                  onHoverPod={setHoverPod}
+                  onClickPod={(podName) =>
+                    setSelectedPod((current) => (current === podName ? null : podName))
+                  }
+                  emptyLabel="no unscheduled pods"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <Splitter
@@ -416,19 +444,15 @@ function NodeBlock({
   onHoverPod,
   onClickPod,
 }: NodeBlockProps) {
-  const capacity = node.podCapacity > 0 ? node.podCapacity : pods.length;
-  const usedFraction = capacity > 0 ? pods.length / capacity : 0;
+  // podCapacity == 0 means the node didn't report an allocatable pod count.
+  // Render the capacity bar empty and elide the denominator instead of
+  // pretending the node is 100% full.
+  const capacity = node.podCapacity;
+  const knownCapacity = capacity > 0;
+  const usedFraction = knownCapacity ? pods.length / capacity : 0;
   const peakUtilization = Math.max(node.cpuUsage, node.memoryUsage, usedFraction);
   const utilizationTone = peakUtilization > 0.85 ? 'hot' : peakUtilization > 0.65 ? 'warm' : 'cool';
   const zoneSuffix = node.zone ? node.zone.slice(-2) : '—';
-
-  const groups: Record<string, PodWithDeployment[]> = {};
-  pods.forEach((pod) => {
-    (groups[pod.deployment] ||= []).push(pod);
-  });
-  const deploymentGroups = Object.entries(groups)
-    .map(([deployment, deploymentPods]) => ({ deployment, pods: deploymentPods }))
-    .sort((a, b) => b.pods.length - a.pods.length || a.deployment.localeCompare(b.deployment));
 
   return (
     <div className={`zm-node zm-node-${utilizationTone}`}>
@@ -442,66 +466,14 @@ function NodeBlock({
         <MiniBar label="mem" value={node.memoryUsage} />
       </div>
 
-      <div className="zm-pod-flow">
-        {deploymentGroups.length === 0 ? (
-          <div className="zm-pod-empty">no pods scheduled</div>
-        ) : (
-          deploymentGroups.map((group, groupIndex) => {
-            const dimmed = focusedDeployment != null && group.deployment !== focusedDeployment;
-            return (
-              <span key={group.deployment} style={{ display: 'inline-flex', alignItems: 'center' }}>
-                {groupIndex > 0 && <span className="zm-pod-divider" />}
-                <span
-                  className={'zm-pod-cluster' + (dimmed ? ' dim' : '')}
-                  onMouseEnter={() => onHoverPod(group.pods[0].name)}
-                  onMouseLeave={() => onHoverPod(null)}
-                  title={`${group.deployment} · ${group.pods.length} pod${group.pods.length === 1 ? '' : 's'}`}
-                >
-                  <span
-                    className="zm-pod-cluster-name"
-                    style={{ color: depColor(group.deployment) }}
-                  >
-                    {group.deployment}
-                  </span>
-                  {group.pods.map((pod) => {
-                    const phase = PHASE_COLORS[pod.phase] ?? PHASE_COLORS.Unknown;
-                    const isFocused = focusedPod === pod.name;
-                    return (
-                      <button
-                        key={pod.name}
-                        type="button"
-                        onMouseEnter={(event) => {
-                          event.stopPropagation();
-                          onHoverPod(pod.name);
-                        }}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onClickPod(pod.name);
-                        }}
-                        className={'zm-pod-cell' + (isFocused ? ' focused' : '')}
-                        style={{
-                          backgroundColor: depColor(group.deployment),
-                          boxShadow:
-                            pod.phase !== 'Running'
-                              ? `inset 0 0 0 2px ${phase.foreground}`
-                              : undefined,
-                        }}
-                        title={`${pod.name} · ${pod.phase}`}
-                        aria-label={`${pod.name} ${pod.phase}`}
-                      >
-                        {pod.phase === 'CrashLoopBackOff' && <span className="zm-pod-bang">!</span>}
-                        {pod.phase === 'Pending' && (
-                          <span className="zm-pod-bang zm-pending">·</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </span>
-              </span>
-            );
-          })
-        )}
-      </div>
+      <PodGroupFlow
+        pods={pods}
+        focusedDeployment={focusedDeployment}
+        focusedPod={focusedPod}
+        onHoverPod={onHoverPod}
+        onClickPod={onClickPod}
+        emptyLabel="no pods scheduled"
+      />
 
       <div className="zm-node-foot">
         <span className="zm-node-cap">
@@ -512,11 +484,95 @@ function NodeBlock({
             />
           </span>
           <span className="zm-node-cap-text">
-            {pods.length}/{capacity} pods
+            {knownCapacity ? `${pods.length}/${capacity} pods` : `${pods.length} pods`}
           </span>
         </span>
         <span className="zm-node-az">{zoneSuffix}</span>
       </div>
+    </div>
+  );
+}
+
+interface PodGroupFlowProps {
+  pods: PodWithDeployment[];
+  focusedDeployment: string | null;
+  focusedPod: string | null;
+  onHoverPod: (podName: string | null) => void;
+  onClickPod: (podName: string) => void;
+  emptyLabel: string;
+}
+
+function PodGroupFlow({
+  pods,
+  focusedDeployment,
+  focusedPod,
+  onHoverPod,
+  onClickPod,
+  emptyLabel,
+}: PodGroupFlowProps) {
+  const groups: Record<string, PodWithDeployment[]> = {};
+  pods.forEach((pod) => {
+    (groups[pod.deployment] ||= []).push(pod);
+  });
+  const deploymentGroups = Object.entries(groups)
+    .map(([deployment, deploymentPods]) => ({ deployment, pods: deploymentPods }))
+    .sort((a, b) => b.pods.length - a.pods.length || a.deployment.localeCompare(b.deployment));
+
+  return (
+    <div className="zm-pod-flow">
+      {deploymentGroups.length === 0 ? (
+        <div className="zm-pod-empty">{emptyLabel}</div>
+      ) : (
+        deploymentGroups.map((group, groupIndex) => {
+          const dimmed = focusedDeployment != null && group.deployment !== focusedDeployment;
+          return (
+            <span key={group.deployment} style={{ display: 'inline-flex', alignItems: 'center' }}>
+              {groupIndex > 0 && <span className="zm-pod-divider" />}
+              <span
+                className={'zm-pod-cluster' + (dimmed ? ' dim' : '')}
+                onMouseEnter={() => onHoverPod(group.pods[0].name)}
+                onMouseLeave={() => onHoverPod(null)}
+                title={`${group.deployment} · ${group.pods.length} pod${group.pods.length === 1 ? '' : 's'}`}
+              >
+                <span className="zm-pod-cluster-name" style={{ color: depColor(group.deployment) }}>
+                  {group.deployment}
+                </span>
+                {group.pods.map((pod) => {
+                  const phase = PHASE_COLORS[pod.phase] ?? PHASE_COLORS.Unknown;
+                  const isFocused = focusedPod === pod.name;
+                  return (
+                    <button
+                      key={pod.name}
+                      type="button"
+                      onMouseEnter={(event) => {
+                        event.stopPropagation();
+                        onHoverPod(pod.name);
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onClickPod(pod.name);
+                      }}
+                      className={'zm-pod-cell' + (isFocused ? ' focused' : '')}
+                      style={{
+                        backgroundColor: depColor(group.deployment),
+                        boxShadow:
+                          pod.phase !== 'Running'
+                            ? `inset 0 0 0 2px ${phase.foreground}`
+                            : undefined,
+                      }}
+                      title={`${pod.name} · ${pod.phase}`}
+                      aria-label={`${pod.name} ${pod.phase}`}
+                    >
+                      {pod.phase === 'CrashLoopBackOff' && <span className="zm-pod-bang">!</span>}
+                      {pod.phase === 'Pending' && <span className="zm-pod-bang zm-pending">·</span>}
+                    </button>
+                  );
+                })}
+              </span>
+            </span>
+          );
+        })
+      )}
     </div>
   );
 }
@@ -530,7 +586,7 @@ function MiniBar({ label, value }: { label: string; value: number }) {
       <span className="zm-mini-track">
         <span className="zm-mini-fill" style={{ width: `${clamped * 100}%`, background: color }} />
       </span>
-      <span className="zm-mini-pct">{Math.round(clamped * 100)}</span>
+      <span className="zm-mini-pct">{Math.round(clamped * 100)}%</span>
     </div>
   );
 }
