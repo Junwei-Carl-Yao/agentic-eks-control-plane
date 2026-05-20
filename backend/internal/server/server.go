@@ -25,7 +25,7 @@ func New(settings config.Settings, deps ...Deps) http.Handler {
 		if resolved.Enforcer == nil {
 			panic("server: Deps.Reader requires Deps.Enforcer; reads may not be exposed without a guardrail chokepoint")
 		}
-		mountClusterRoutes(serveMux, resolved.Reader, resolved.Enforcer)
+		mountClusterRoutes(serveMux, resolved.Reader, resolved.Enforcer, resolved.ClusterName, resolved.ClusterRegion)
 	}
 	if resolved.Ops != nil {
 		if resolved.Enforcer == nil {

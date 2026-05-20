@@ -15,6 +15,11 @@ export interface Pod {
   namespace: string;
   phase: string;
   labels?: Record<string, string>;
+  nodeName?: string;
+  restartCount: number;
+  createdAt: string;
+  cpuUsage: number;
+  memoryUsage: number;
 }
 
 export interface ClusterEvent {
@@ -65,6 +70,28 @@ export interface Namespace {
 
 export interface Node {
   name: string;
+  zone?: string;
+  instanceType?: string;
+  podCapacity: number;
+  cpuCapacity?: string;
+  memoryCapacity?: string;
+  cpuUsage: number;
+  memoryUsage: number;
+  ready: boolean;
+}
+
+// Cluster identity + live health. Surfaced by GET /api/cluster/info.
+export interface ClusterInfo {
+  name: string;
+  region: string;
+  healthy: boolean;
+}
+
+// Live /livez verdict surfaced by GET /api/cluster/health. Split off from
+// ClusterInfo so the UI can poll health on a tight cadence without
+// re-fetching identity on every tick.
+export interface ClusterHealth {
+  healthy: boolean;
 }
 
 export interface ReplicaSet {

@@ -73,11 +73,23 @@ Stop-PortListener -Port $AgentPort    -Label "agent"
 Stop-PortListener -Port $BackendPort  -Label "backend"
 
 if (-not $KeepCluster) {
-    Write-Host "==> deleting kind cluster $ClusterName"
     $clusters = Get-KindClusters
     if ($clusters -contains $ClusterName) {
+        $nodeCount = 0
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $nodeLines = & kubectl --context "kind-$ClusterName" get nodes --no-headers 2>$null
+            if ($nodeLines) {
+                $nodeCount = @($nodeLines -split "`r?`n" | Where-Object { $_ -ne "" }).Count
+            }
+        } finally {
+            $ErrorActionPreference = $previous
+        }
+        Write-Host "==> deleting kind cluster $ClusterName ($nodeCount nodes)"
         & kind delete cluster --name $ClusterName | Out-Null
     } else {
+        Write-Host "==> deleting kind cluster $ClusterName"
         Write-Host "    cluster not present"
     }
 } else {

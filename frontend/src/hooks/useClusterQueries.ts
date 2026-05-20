@@ -4,10 +4,18 @@ import { clusterApi } from '@/api/client';
 
 const POLL_INTERVAL_MS = 5000;
 
-export function useNamespaces() {
+export function useClusterIdentity() {
   return useQuery({
-    queryKey: ['namespaces'],
-    queryFn: () => clusterApi.listNamespaces(),
+    queryKey: ['cluster-info'],
+    queryFn: () => clusterApi.info(),
+    staleTime: Infinity,
+  });
+}
+
+export function useClusterHealth() {
+  return useQuery({
+    queryKey: ['cluster-health'],
+    queryFn: () => clusterApi.health(),
     refetchInterval: POLL_INTERVAL_MS,
   });
 }
@@ -33,15 +41,6 @@ export function usePods(namespace: string) {
   return useQuery({
     queryKey: ['pods', namespace],
     queryFn: () => clusterApi.listPods(namespace),
-    refetchInterval: POLL_INTERVAL_MS,
-    enabled: namespace.length > 0,
-  });
-}
-
-export function useServices(namespace: string) {
-  return useQuery({
-    queryKey: ['services', namespace],
-    queryFn: () => clusterApi.listServices(namespace),
     refetchInterval: POLL_INTERVAL_MS,
     enabled: namespace.length > 0,
   });

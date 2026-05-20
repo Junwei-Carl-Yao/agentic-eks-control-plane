@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"eks-control-plane/backend/internal/config"
 	"eks-control-plane/backend/internal/guardrails"
 )
 
@@ -222,6 +223,125 @@ func TestListNodes_BypassesEnforcer(t *testing.T) {
 	if len(nodeList) != 1 || nodeList[0].Name != "ip-10-0-0-1" {
 		t.Errorf("nodes = %+v, want [ip-10-0-0-1]", nodeList)
 	}
+}
+
+// Scenario: GET /api/cluster/info → 200 with the cluster name/region passed
+// through from Deps plus the reader's healthy flag. The route bypasses the
+// enforcer; the response carries no namespace-scoped data.
+func TestClusterInfo_ReturnsConfiguredIdentity(t *testing.T) {
+	readsStub := &stubReads{clusterInfo: &ClusterInfo{Name: "eks-demo", Region: "us-east-1", Healthy: true}}
+	handler := New(config.Settings{}, Deps{
+		Reader:        readsStub,
+		Enforcer:      permissiveEnforcer(),
+		ClusterName:   "eks-demo",
+		ClusterRegion: "us-east-1",
+	})
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/api/cluster/info", nil))
+	if responseRecorder.Code != 200 {
+		t.Fatalf("status = %d, want 200; body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	var info ClusterInfo
+	if err := json.NewDecoder(responseRecorder.Body).Decode(&info); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if info.Name != "eks-demo" || info.Region != "us-east-1" || !info.Healthy {
+		t.Errorf("info = %+v, want eks-demo/us-east-1/healthy", info)
+	}
+	if readsStub.lastInfoName != "eks-demo" || readsStub.lastInfoRegion != "us-east-1" {
+		t.Errorf("reader saw (%q,%q), want (eks-demo,us-east-1)", readsStub.lastInfoName, readsStub.lastInfoRegion)
+	}
+}
+
+// Scenario: reader reports Healthy=false → route forwards the unhealthy flag
+// unchanged. The frontend uses this to swap its cluster dot red and surface a
+// "disconnected" label; the response must reflect the reader's verdict
+// verbatim instead of defaulting to healthy.
+func TestClusterInfo_PropagatesUnhealthyFlag(t *testing.T) {
+	readsStub := &stubReads{clusterInfo: &ClusterInfo{Name: "eks-demo", Region: "us-east-1", Healthy: false}}
+	handler := New(config.Settings{}, Deps{
+		Reader:        readsStub,
+		Enforcer:      permissiveEnforcer(),
+		ClusterName:   "eks-demo",
+		ClusterRegion: "us-east-1",
+	})
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/api/cluster/info", nil))
+	var info ClusterInfo
+	_ = json.NewDecoder(responseRecorder.Body).Decode(&info)
+	if info.Healthy {
+		t.Errorf("info.Healthy = true, want false (reader reported unhealthy)")
+	}
+}
+
+// Scenario: GET /api/cluster/health → 200 with the reader's verdict in the
+// body. The healthy case proves the wire payload is the slim {healthy:bool}
+// envelope and that the reader was called exactly once per request — the new
+// route exists so the UI can poll health on a tight cadence, so each request
+// must touch the reader once and only once.
+func TestClusterHealth_ReturnsReaderVerdict_Healthy(t *testing.T) {
+	readsStub := &stubReads{clusterHealth: &ClusterHealth{Healthy: true}}
+	handler := newTestHandlerWithReads(readsStub)
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/api/cluster/health", nil))
+	if responseRecorder.Code != 200 {
+		t.Fatalf("status = %d, want 200; body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	var health ClusterHealth
+	if err := json.NewDecoder(responseRecorder.Body).Decode(&health); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if !health.Healthy {
+		t.Errorf("Healthy = false, want true (reader reported healthy)")
+	}
+	if readsStub.lastHealthCalls != 1 {
+		t.Errorf("reader.ClusterHealth called %d time(s), want exactly 1 per request", readsStub.lastHealthCalls)
+	}
+}
+
+// Scenario: reader reports unhealthy → route forwards the false flag verbatim.
+// The /cluster/health endpoint must NOT default to healthy when the reader
+// said otherwise; that would hide a real apiserver outage from the UI dot.
+func TestClusterHealth_ReturnsReaderVerdict_Unhealthy(t *testing.T) {
+	readsStub := &stubReads{clusterHealth: &ClusterHealth{Healthy: false}}
+	handler := newTestHandlerWithReads(readsStub)
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/api/cluster/health", nil))
+	if responseRecorder.Code != 200 {
+		t.Fatalf("status = %d, want 200; body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	var health ClusterHealth
+	if err := json.NewDecoder(responseRecorder.Body).Decode(&health); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if health.Healthy {
+		t.Errorf("Healthy = true, want false (route must forward unhealthy, not default to healthy)")
+	}
+}
+
+// Scenario: enforcer denies every namespace → /api/cluster/health still
+// returns 200. Health is not namespaced data; same rationale as
+// /api/cluster/info. If the enforcer were gating this route, the UI's poll
+// would 403 in any deployment that ran with a tight allowlist.
+func TestClusterHealth_BypassesEnforcer(t *testing.T) {
+	readsStub := &stubReads{clusterHealth: &ClusterHealth{Healthy: true}}
+	handler := newTestHandlerWithReadsAndEnforcer(readsStub, denyAllEnforcer())
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/api/cluster/health", nil))
+	if responseRecorder.Code != 200 {
+		t.Errorf("status = %d, want 200 (route must bypass enforcer); body=%s",
+			responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if readsStub.lastHealthCalls != 1 {
+		t.Errorf("reader.ClusterHealth called %d time(s), want 1", readsStub.lastHealthCalls)
+	}
+}
+
+// denyAllEnforcer returns an Enforcer wired to a Policy whose allowlist is
+// empty — every namespaced action is denied. Used by the bypass tests to
+// prove a route reaches the reader without consulting the enforcer.
+func denyAllEnforcer() *guardrails.Enforcer {
+	return guardrails.New(guardrails.Policy{AllowedNamespaces: nil}, nil)
 }
 
 // Scenario: namespaced read endpoints reject a missing namespace query param

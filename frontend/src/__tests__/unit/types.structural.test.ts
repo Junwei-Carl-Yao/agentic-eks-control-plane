@@ -42,9 +42,22 @@ describe('TS types mirror backend Go DTOs (json tag parity)', () => {
     );
   });
 
-  // Go Pod: name, namespace, phase, labels (omitempty)
+  // Go Pod: name, namespace, phase, labels (omitempty), nodeName (omitempty),
+  // restartCount, createdAt, cpuUsage, memoryUsage (host-relative fractions).
   it('Pod has the same fields as the Go DTO', () => {
-    expect(fieldNamesOf('Pod')).toEqual(['labels', 'name', 'namespace', 'phase'].sort());
+    expect(fieldNamesOf('Pod')).toEqual(
+      [
+        'cpuUsage',
+        'createdAt',
+        'labels',
+        'memoryUsage',
+        'name',
+        'namespace',
+        'nodeName',
+        'phase',
+        'restartCount',
+      ].sort(),
+    );
   });
 
   // Go Event: namespace, reason, message, type, time, object (omitempty).
@@ -63,9 +76,35 @@ describe('TS types mirror backend Go DTOs (json tag parity)', () => {
     );
   });
 
-  // Go Node: name only (intentional — §2.2: no addresses, capacity, labels).
-  it('Node has only the `name` field (no leakage of addresses/capacity/labels)', () => {
-    expect(fieldNamesOf('Node')).toEqual(['name']);
+  // Go Node: name, zone (omitempty), instanceType (omitempty), podCapacity,
+  // cpuCapacity (omitempty), memoryCapacity (omitempty), ready. Addresses and
+  // arbitrary labels stay off the wire.
+  it('Node carries topology, capacity, and live usage but no addresses/labels', () => {
+    expect(fieldNamesOf('Node')).toEqual(
+      [
+        'cpuCapacity',
+        'cpuUsage',
+        'instanceType',
+        'memoryCapacity',
+        'memoryUsage',
+        'name',
+        'podCapacity',
+        'ready',
+        'zone',
+      ].sort(),
+    );
+  });
+
+  // Go ClusterInfo: name, region, healthy.
+  it('ClusterInfo has the same fields as the Go DTO', () => {
+    expect(fieldNamesOf('ClusterInfo')).toEqual(['healthy', 'name', 'region'].sort());
+  });
+
+  // Go ClusterHealth: just `healthy`. The slim payload exists specifically so
+  // the UI's tight polling loop doesn't also re-fetch identity fields each
+  // tick — adding any other field here would defeat that.
+  it('ClusterHealth has only the healthy field', () => {
+    expect(fieldNamesOf('ClusterHealth')).toEqual(['healthy']);
   });
 
   // Go Namespace: name, phase

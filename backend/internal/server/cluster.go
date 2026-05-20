@@ -15,7 +15,9 @@ import (
 // route that does not deny — it narrows the cluster-wide list down to the
 // allowlist. ListNodes is unguarded; the reads layer already returns names
 // only and nothing else.
-func mountClusterRoutes(serveMux *http.ServeMux, reader ClusterReader, enforcer *guardrails.Enforcer) {
+func mountClusterRoutes(serveMux *http.ServeMux, reader ClusterReader, enforcer *guardrails.Enforcer, clusterName, clusterRegion string) {
+	serveMux.HandleFunc("GET /api/cluster/info", clusterInfoHandler(reader, clusterName, clusterRegion))
+	serveMux.HandleFunc("GET /api/cluster/health", clusterHealthHandler(reader))
 	serveMux.HandleFunc("GET /api/cluster/deployments", listDeploymentsHandler(reader, enforcer))
 	serveMux.HandleFunc("GET /api/cluster/deployments/{name}", getDeploymentHandler(reader, enforcer))
 	serveMux.HandleFunc("GET /api/cluster/pods", listPodsHandler(reader, enforcer))
@@ -220,6 +222,36 @@ func listNodesHandler(reader ClusterReader) http.HandlerFunc {
 			return
 		}
 		writeJSON(writer, http.StatusOK, nodes)
+	}
+}
+
+// clusterInfoHandler returns the configured cluster identity plus a live
+// healthy flag. It bypasses the enforcer because the response carries no
+// namespace-scoped data — only the operator's view of which cluster they are
+// connected to.
+func clusterInfoHandler(reader ClusterReader, name, region string) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		info, err := reader.ClusterInfo(request.Context(), name, region)
+		if err != nil {
+			writeClusterError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, info)
+	}
+}
+
+// clusterHealthHandler returns just the live /livez verdict. Same enforcer
+// bypass rationale as clusterInfoHandler — no namespace-scoped data leaves
+// here. Split off so the UI can poll health on a tight cadence without
+// re-fetching identity each tick.
+func clusterHealthHandler(reader ClusterReader) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		health, err := reader.ClusterHealth(request.Context())
+		if err != nil {
+			writeClusterError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, health)
 	}
 }
 

@@ -19,21 +19,26 @@ import (
 //
 // newTestHandlerWithReads accepts both forms.
 type stubReads struct {
-	deployments []Deployment
-	deployment  *Deployment
-	events      []Event
-	services    []Service
-	ingresses   []Ingress
-	hpas        []HorizontalPodAutoscaler
-	namespaces  []Namespace
-	nodes       []Node
-	replicaSets []ReplicaSet
-	notFound    bool
+	deployments   []Deployment
+	deployment    *Deployment
+	events        []Event
+	services      []Service
+	ingresses     []Ingress
+	hpas          []HorizontalPodAutoscaler
+	namespaces    []Namespace
+	nodes         []Node
+	replicaSets   []ReplicaSet
+	clusterInfo   *ClusterInfo
+	clusterHealth *ClusterHealth
+	notFound      bool
 
 	lastPodSelector  string
 	lastLogPod       string
 	lastLogContainer string
 	lastLogLines     int64
+	lastInfoName     string
+	lastInfoRegion   string
+	lastHealthCalls  int
 }
 
 func (stub *stubReads) ListDeployments(_ context.Context, _ string) ([]Deployment, error) {
@@ -88,6 +93,23 @@ func (stub *stubReads) ListNodes(_ context.Context) ([]Node, error) {
 
 func (stub *stubReads) ListReplicaSets(_ context.Context, _ string) ([]ReplicaSet, error) {
 	return stub.replicaSets, nil
+}
+
+func (stub *stubReads) ClusterInfo(_ context.Context, name, region string) (ClusterInfo, error) {
+	stub.lastInfoName = name
+	stub.lastInfoRegion = region
+	if stub.clusterInfo == nil {
+		return ClusterInfo{Name: name, Region: region, Healthy: true}, nil
+	}
+	return *stub.clusterInfo, nil
+}
+
+func (stub *stubReads) ClusterHealth(_ context.Context) (ClusterHealth, error) {
+	stub.lastHealthCalls++
+	if stub.clusterHealth == nil {
+		return ClusterHealth{Healthy: true}, nil
+	}
+	return *stub.clusterHealth, nil
 }
 
 // stubOps is the Operations test double. All call recording is on a pointer

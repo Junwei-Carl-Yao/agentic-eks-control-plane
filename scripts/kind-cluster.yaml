@@ -1,0 +1,19 @@
+# 3-node kind cluster: 1 control-plane + 2 workers, each labeled with a
+# distinct topology.kubernetes.io/zone so the Zone Map renders one node per AZ
+# without any synthesis fallback.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: eks-ctrl
+nodes:
+  - role: control-plane
+    labels:
+      topology.kubernetes.io/zone: us-east-1a
+      node.kubernetes.io/instance-type: m5.xlarge
+  - role: worker
+    labels:
+      topology.kubernetes.io/zone: us-east-1b
+      node.kubernetes.io/instance-type: m5.xlarge
+  - role: worker
+    labels:
+      topology.kubernetes.io/zone: us-east-1c
+      node.kubernetes.io/instance-type: m5.xlarge

@@ -2,15 +2,15 @@ import axios, { AxiosError } from 'axios';
 
 import type {
   ClusterEvent,
+  ClusterHealth,
+  ClusterInfo,
   DenialResponse,
   Deployment,
   HorizontalPodAutoscaler,
   Ingress,
-  Namespace,
   Node,
   Pod,
   ReplicaSet,
-  Service,
 } from '@/types';
 
 // Base URL is empty by default so requests go through the Vite dev proxy. In
@@ -69,14 +69,14 @@ async function get<T>(path: string, params?: Record<string, string>): Promise<T>
 }
 
 export const clusterApi = {
-  listNamespaces: () => get<Namespace[]>('/api/cluster/namespaces'),
+  info: () => get<ClusterInfo>('/api/cluster/info'),
+  health: () => get<ClusterHealth>('/api/cluster/health'),
   listNodes: () => get<Node[]>('/api/cluster/nodes'),
   listDeployments: (namespace: string) =>
     get<Deployment[]>('/api/cluster/deployments', { namespace }),
   listPods: (namespace: string, labelSelector?: string) =>
     get<Pod[]>('/api/cluster/pods', labelSelector ? { namespace, labelSelector } : { namespace }),
   listEvents: (namespace: string) => get<ClusterEvent[]>('/api/cluster/events', { namespace }),
-  listServices: (namespace: string) => get<Service[]>('/api/cluster/services', { namespace }),
   listIngresses: (namespace: string) => get<Ingress[]>('/api/cluster/ingresses', { namespace }),
   listHpas: (namespace: string) =>
     get<HorizontalPodAutoscaler[]>('/api/cluster/hpas', { namespace }),
