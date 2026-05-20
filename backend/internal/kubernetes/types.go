@@ -110,6 +110,13 @@ type ClusterInfo struct {
 	Healthy bool   `json:"healthy"`
 }
 
+// ClusterHealth is the slim payload returned by GET /api/cluster/health. It
+// carries only the live /livez verdict so the UI can poll health on a tight
+// cadence without re-fetching the static identity fields on every tick.
+type ClusterHealth struct {
+	Healthy bool `json:"healthy"`
+}
+
 // ReplicaSet carries enough revision info for the planner to map ReplicaSets
 // back to a Deployment's rollout history.
 type ReplicaSet struct {

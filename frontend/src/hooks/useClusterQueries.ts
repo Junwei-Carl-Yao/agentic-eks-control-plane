@@ -4,10 +4,18 @@ import { clusterApi } from '@/api/client';
 
 const POLL_INTERVAL_MS = 5000;
 
-export function useClusterInfo() {
+export function useClusterIdentity() {
   return useQuery({
     queryKey: ['cluster-info'],
     queryFn: () => clusterApi.info(),
+    staleTime: Infinity,
+  });
+}
+
+export function useClusterHealth() {
+  return useQuery({
+    queryKey: ['cluster-health'],
+    queryFn: () => clusterApi.health(),
     refetchInterval: POLL_INTERVAL_MS,
   });
 }

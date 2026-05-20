@@ -16,6 +16,9 @@ beforeEach(() => {
         data: { name: 'eks-prod-us-east-1', region: 'us-east-1', healthy: true },
       });
     }
+    if (url === '/api/cluster/health') {
+      return Promise.resolve({ data: { healthy: true } });
+    }
     return Promise.resolve({ data: [] });
   });
   // Stop fetch from actually firing if the chat panel kicks one off.

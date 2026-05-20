@@ -20,6 +20,7 @@ type (
 	Node                    = kubernetes.Node
 	ReplicaSet              = kubernetes.ReplicaSet
 	ClusterInfo             = kubernetes.ClusterInfo
+	ClusterHealth           = kubernetes.ClusterHealth
 )
 
 // ClusterReader is the read-only seam for the cluster routes. It exists so
@@ -38,6 +39,7 @@ type ClusterReader interface {
 	ListNodes(ctx context.Context) ([]Node, error)
 	ListReplicaSets(ctx context.Context, namespace string) ([]ReplicaSet, error)
 	ClusterInfo(ctx context.Context, name, region string) (ClusterInfo, error)
+	ClusterHealth(ctx context.Context) (ClusterHealth, error)
 }
 
 // Operations is the mutation seam. The Phase 3 enforcer wraps each method on

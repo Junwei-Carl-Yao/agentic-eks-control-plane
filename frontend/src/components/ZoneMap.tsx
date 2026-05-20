@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 
 import {
-  useClusterInfo,
+  useClusterHealth,
+  useClusterIdentity,
   useDeployments,
   useEvents,
   useNodes,
@@ -126,13 +127,14 @@ interface ZoneMapDataState {
 }
 
 export function ZoneMap() {
-  const clusterInfoQuery = useClusterInfo();
+  const identityQuery = useClusterIdentity();
+  const healthQuery = useClusterHealth();
   const nodesQuery = useNodes();
   const apiPodsQuery = usePods(PRIMARY_NAMESPACE);
   const apiDeploymentsQuery = useDeployments(PRIMARY_NAMESPACE);
   const apiEventsQuery = useEvents(PRIMARY_NAMESPACE);
 
-  const region = clusterInfoQuery.data?.region ?? FALLBACK_REGION;
+  const region = identityQuery.data?.region ?? FALLBACK_REGION;
 
   const data: ZoneMapDataState = useMemo(() => {
     const rawNodes = nodesQuery.data ?? [];
@@ -233,14 +235,14 @@ export function ZoneMap() {
   const podsHealthyTone =
     data.summary.healthyPods === data.summary.pods && data.summary.pods > 0 ? 'ok' : 'warn';
 
-  const clusterName = clusterInfoQuery.data?.name ?? '—';
-  const clusterRegion = clusterInfoQuery.data?.region ?? FALLBACK_REGION;
-  // Until cluster info lands, we don't know either way — render neutral.
+  const clusterName = identityQuery.data?.name ?? '—';
+  const clusterRegion = identityQuery.data?.region ?? FALLBACK_REGION;
+  // Until the health probe lands, we don't know either way — render neutral.
   // Once it lands, `healthy: false` swaps the dot red and surfaces a label so
   // an unreachable apiserver isn't hidden behind merely-stale tile data.
-  const clusterStatus: 'pending' | 'healthy' | 'unhealthy' = !clusterInfoQuery.data
+  const clusterStatus: 'pending' | 'healthy' | 'unhealthy' = !healthQuery.data
     ? 'pending'
-    : clusterInfoQuery.data.healthy
+    : healthQuery.data.healthy
       ? 'healthy'
       : 'unhealthy';
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"time"
 
@@ -74,7 +74,7 @@ func (client *Client) Rollback(ctx context.Context, namespace, name string, revi
 		return fmt.Errorf("kubernetes: get deployment: %w", err)
 	}
 
-	target, err := client.targetRevision(ctx, namespace, name, deployment, revision)
+	target, err := client.targetRevision(ctx, namespace, deployment, revision)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (client *Client) updateDeployment(ctx context.Context, namespace, name stri
 // targetRevision resolves a Rollback's target. revision > 0 is taken verbatim;
 // revision == 0 picks the immediate predecessor of whatever revision the
 // deployment currently sits on.
-func (client *Client) targetRevision(ctx context.Context, namespace, name string, deployment *appsv1.Deployment, revision int64) (int64, error) {
+func (client *Client) targetRevision(ctx context.Context, namespace string, deployment *appsv1.Deployment, revision int64) (int64, error) {
 	if revision > 0 {
 		return revision, nil
 	}
@@ -134,7 +134,7 @@ func (client *Client) targetRevision(ctx context.Context, namespace, name string
 	if len(revisions) == 0 {
 		return 0, errors.New("kubernetes: rollback: no revision history")
 	}
-	sort.Slice(revisions, func(left, right int) bool { return revisions[left] < revisions[right] })
+	slices.Sort(revisions)
 	// Find the largest revision strictly less than current.
 	previous := int64(0)
 	for _, historicalRevision := range revisions {

@@ -119,6 +119,6 @@ describe('tool surface omits blocked categories (requirement.md Blocked)', () =>
     // Spec §4.2 enumerates the read + write tools the backend exposes. The
     // agent must not invent new ones (extras would expand its capability
     // surface beyond what the backend deliberately exposes).
-    expect(registeredNames.length).toBe(18);
+    expect(registeredNames.length).toBe(19);
   });
 });

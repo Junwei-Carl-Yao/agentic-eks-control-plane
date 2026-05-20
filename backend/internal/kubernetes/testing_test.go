@@ -33,6 +33,7 @@ type fakeBuilder struct {
 	nodeMetrics []metricsv1beta1.NodeMetrics
 	podMetrics  []metricsv1beta1.PodMetrics
 	logs        map[logKey]string
+	healthErr   error
 }
 
 type logKey struct{ namespace, pod, container string }
@@ -72,7 +73,28 @@ func newFakeClient(t *testing.T, options ...fakeOption) *Client {
 		kubernetesInterface: clientset,
 		metricsInterface:    metricsClientset,
 		logs:                &memLogSource{logs: builder.logs},
+		health:              &memHealthProbe{err: builder.healthErr},
 	}
+}
+
+// withUnhealthyProbe makes the in-memory health probe return err, simulating
+// an unreachable apiserver. Tests that don't supply this option get a healthy
+// probe by default.
+func withUnhealthyProbe(err error) fakeOption {
+	return func(builder *fakeBuilder) {
+		builder.healthErr = err
+	}
+}
+
+// memHealthProbe is the in-memory healthProbe used by newFakeClient. The fake
+// clientset's Discovery().RESTClient() is nil, so the production probe path
+// would panic — this stand-in returns a configurable error instead.
+type memHealthProbe struct {
+	err error
+}
+
+func (probe *memHealthProbe) probe(_ context.Context) error {
+	return probe.err
 }
 
 // withDeployments seeds N deployments named after the trailing args.

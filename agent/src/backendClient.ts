@@ -99,6 +99,10 @@ export class BackendClient {
     return this.get<unknown>('/api/cluster/info');
   }
 
+  clusterHealth() {
+    return this.get<unknown>('/api/cluster/health');
+  }
+
   listDeployments(namespace: string) {
     return this.get<unknown>('/api/cluster/deployments', { namespace });
   }

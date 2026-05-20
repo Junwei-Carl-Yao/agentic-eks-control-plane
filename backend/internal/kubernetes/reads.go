@@ -19,9 +19,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// clusterHealthProbeTimeout caps the apiserver discovery probe so a hung
-// control plane can't stall /api/cluster/info. The handler returns Healthy
-// = false when this fires.
+// clusterHealthProbeTimeout caps the apiserver /livez probe so a hung
+// control plane can't stall /api/cluster/info or /api/cluster/health. The
+// handler returns Healthy = false when this fires.
 const clusterHealthProbeTimeout = 3 * time.Second
 
 // ListDeployments returns all Deployments in a namespace. Empty namespace
@@ -251,31 +251,27 @@ func (client *Client) nodeMetricsByName(ctx context.Context) map[string]nodeUsag
 
 // ClusterInfo returns the cluster's identity plus a health probe result.
 // Name/region come from configuration; healthy reflects whether the apiserver
-// answered a discovery call within clusterHealthProbeTimeout (or before the
-// caller's ctx fires, whichever is sooner). Discovery().ServerVersion()
-// itself doesn't accept a context, so we run it in a goroutine and race it
-// against the bounded ctx — a hung apiserver returns Healthy=false instead
-// of stalling the route.
+// answered a /livez call within clusterHealthProbeTimeout (or before the
+// caller's ctx fires, whichever is sooner).
 func (client *Client) ClusterInfo(ctx context.Context, name, region string) (ClusterInfo, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, clusterHealthProbeTimeout)
 	defer cancel()
-	probeErr := make(chan error, 1)
-	go func() {
-		_, err := client.kubernetesInterface.Discovery().ServerVersion()
-		probeErr <- err
-	}()
-	var healthy bool
-	select {
-	case err := <-probeErr:
-		healthy = err == nil
-	case <-probeCtx.Done():
-		healthy = false
-	}
+	err := client.health.probe(probeCtx)
 	return ClusterInfo{
 		Name:    name,
 		Region:  region,
-		Healthy: healthy,
+		Healthy: err == nil,
 	}, nil
+}
+
+// ClusterHealth runs the same /livez probe as ClusterInfo but returns just the
+// health verdict. Lets the UI poll health on its own cadence without paying
+// for an identity round-trip every tick.
+func (client *Client) ClusterHealth(ctx context.Context) (ClusterHealth, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, clusterHealthProbeTimeout)
+	defer cancel()
+	err := client.health.probe(probeCtx)
+	return ClusterHealth{Healthy: err == nil}, nil
 }
 
 // ListReplicaSets returns ReplicaSets in a namespace with revision metadata.

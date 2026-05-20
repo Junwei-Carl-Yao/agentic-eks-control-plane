@@ -3,6 +3,7 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -347,6 +348,53 @@ func TestClusterInfo_ReturnsConfiguredIdentityAndHealth(t *testing.T) {
 	}
 	if !info.Healthy {
 		t.Errorf("fake clientset should report healthy")
+	}
+}
+
+// Scenario: probe fails → ClusterInfo collapses the error into Healthy=false
+// and still returns the configured identity. The probe error is NOT surfaced
+// as a function-level error; ClusterInfo is total. This lets the UI keep
+// rendering the cluster name/region even when the apiserver is unreachable.
+func TestClusterInfo_UnhealthyWhenProbeFails(t *testing.T) {
+	kubeClient := newFakeClient(t, withUnhealthyProbe(errors.New("apiserver unreachable")))
+	info, err := kubeClient.ClusterInfo(context.Background(), "n", "r")
+	if err != nil {
+		t.Fatalf("ClusterInfo returned err = %v, want nil (probe error must collapse into Healthy)", err)
+	}
+	if info.Name != "n" || info.Region != "r" {
+		t.Errorf("identity = %+v, want n/r", info)
+	}
+	if info.Healthy {
+		t.Errorf("Healthy = true, want false when probe fails")
+	}
+}
+
+// Scenario: default fake (no probe error) → ClusterHealth reports healthy.
+// Verifies the new lightweight endpoint reuses the same seam ClusterInfo does
+// and that the default in-memory probe is happy-path.
+func TestClusterHealth_HealthyByDefault(t *testing.T) {
+	kubeClient := newFakeClient(t)
+	health, err := kubeClient.ClusterHealth(context.Background())
+	if err != nil {
+		t.Fatalf("ClusterHealth: %v", err)
+	}
+	if !health.Healthy {
+		t.Errorf("Healthy = false, want true on default fake probe")
+	}
+}
+
+// Scenario: probe fails → ClusterHealth flips Healthy to false but still
+// returns nil function-level error. The probe error is collapsed into the
+// flag the same way ClusterInfo collapses it; callers must read Healthy, not
+// the error, to decide whether the apiserver answered.
+func TestClusterHealth_UnhealthyWhenProbeFails(t *testing.T) {
+	kubeClient := newFakeClient(t, withUnhealthyProbe(errors.New("apiserver unreachable")))
+	health, err := kubeClient.ClusterHealth(context.Background())
+	if err != nil {
+		t.Fatalf("ClusterHealth returned err = %v, want nil (probe error must collapse into Healthy)", err)
+	}
+	if health.Healthy {
+		t.Errorf("Healthy = true, want false when probe fails")
 	}
 }
 

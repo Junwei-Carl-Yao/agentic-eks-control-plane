@@ -16,6 +16,7 @@ import { installMockFetch, parseUrl, type MockFetchHandle } from './testUtils.js
 const SPEC_TOOLS_READ = [
   'health_check',
   'cluster_info',
+  'cluster_health',
   'list_deployments',
   'get_deployment',
   'list_pods',
@@ -230,9 +231,15 @@ describe('tool -> backend route mapping', () => {
     }
   });
 
-  it('list_namespaces, list_nodes, health_check, cluster_info accept empty input and emit no query string', async () => {
+  it('list_namespaces, list_nodes, health_check, cluster_info, cluster_health accept empty input and emit no query string', async () => {
     setupOk([]);
-    const noArgTools = ['list_namespaces', 'list_nodes', 'health_check', 'cluster_info'];
+    const noArgTools = [
+      'list_namespaces',
+      'list_nodes',
+      'health_check',
+      'cluster_info',
+      'cluster_health',
+    ];
     for (const toolName of noArgTools) {
       mock.recorded.length = 0;
       const tool = getTool(toolName);
@@ -252,6 +259,8 @@ describe('tool -> backend route mapping', () => {
     expect(parseUrl(mock.recorded[1]!.url).path).toBe('/api/cluster/nodes');
     await getTool('cluster_info').handler({}, {});
     expect(parseUrl(mock.recorded[2]!.url).path).toBe('/api/cluster/info');
+    await getTool('cluster_health').handler({}, {});
+    expect(parseUrl(mock.recorded[3]!.url).path).toBe('/api/cluster/health');
   });
 
   it('scale -> POST /api/operations/scale with namespace, name, replicas', async () => {

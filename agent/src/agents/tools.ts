@@ -40,6 +40,12 @@ export function buildKubernetesMcpServer(client: BackendClient) {
         async () => asToolResult(await client.clusterInfo()),
       ),
       tool(
+        'cluster_health',
+        'Return only the live apiserver healthy flag — cheaper than cluster_info when identity is already known.',
+        {},
+        async () => asToolResult(await client.clusterHealth()),
+      ),
+      tool(
         'list_deployments',
         'List Deployments in a namespace.',
         { namespace: z.string().min(1).describe('Kubernetes namespace') },
@@ -173,6 +179,7 @@ export function buildKubernetesMcpServer(client: BackendClient) {
 export const TOOL_NAMES = [
   'health_check',
   'cluster_info',
+  'cluster_health',
   'list_deployments',
   'get_deployment',
   'list_pods',

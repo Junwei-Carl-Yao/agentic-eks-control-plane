@@ -1,10 +1,12 @@
 package kubernetes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -20,13 +22,15 @@ const inClusterTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
 // Client wraps a typed Kubernetes clientset, an optional metrics clientset
 // (metrics.k8s.io/v1beta1 — nil if metrics-server is not installed), plus the
-// log source we use for TailLogs. The log source is a separate seam so tests
-// can inject in-memory log fixtures without standing up a fake API server's
-// logs subresource.
+// log source we use for TailLogs and the health probe we use for ClusterInfo.
+// Both seams exist so tests can inject in-memory fakes; the K8s fake
+// clientset's Discovery().RESTClient() returns nil, which would panic the
+// production probe path.
 type Client struct {
 	kubernetesInterface kubernetes.Interface
 	metricsInterface    metricsclient.Interface
 	logs                logSource
+	health              healthProbe
 }
 
 // Interface returns the underlying clientset. Exposed mainly for tests and for
@@ -56,7 +60,24 @@ func NewClient(settings config.Settings) (*Client, error) {
 		kubernetesInterface: clientset,
 		metricsInterface:    metricsSet,
 		logs:                &kubeLogSource{kubernetesInterface: clientset},
+		health:              &discoveryHealthProbe{discovery: clientset.Discovery()},
 	}, nil
+}
+
+// healthProbe is the seam separating the production apiserver /livez probe
+// from in-memory test fakes. ServerVersion() doesn't accept a context, so we
+// hit /livez through the discovery REST client instead and let ctx cancel
+// the in-flight request directly.
+type healthProbe interface {
+	probe(ctx context.Context) error
+}
+
+type discoveryHealthProbe struct {
+	discovery discovery.DiscoveryInterface
+}
+
+func (probe *discoveryHealthProbe) probe(ctx context.Context) error {
+	return probe.discovery.RESTClient().Get().AbsPath("/livez").Do(ctx).Error()
 }
 
 func buildRESTConfig(settings config.Settings) (*rest.Config, error) {

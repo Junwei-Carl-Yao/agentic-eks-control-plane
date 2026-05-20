@@ -100,6 +100,13 @@ describe('TS types mirror backend Go DTOs (json tag parity)', () => {
     expect(fieldNamesOf('ClusterInfo')).toEqual(['healthy', 'name', 'region'].sort());
   });
 
+  // Go ClusterHealth: just `healthy`. The slim payload exists specifically so
+  // the UI's tight polling loop doesn't also re-fetch identity fields each
+  // tick — adding any other field here would defeat that.
+  it('ClusterHealth has only the healthy field', () => {
+    expect(fieldNamesOf('ClusterHealth')).toEqual(['healthy']);
+  });
+
   // Go Namespace: name, phase
   it('Namespace has the same fields as the Go DTO', () => {
     expect(fieldNamesOf('Namespace')).toEqual(['name', 'phase']);

@@ -25,6 +25,7 @@ describe('ZoneMap', () => {
         region: 'us-east-1',
         healthy: true,
       }),
+      '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': () => [],
       '/api/cluster/pods': () => [],
@@ -70,6 +71,7 @@ describe('ZoneMap', () => {
         region: 'us-east-1',
         healthy: true,
       }),
+      '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [
         { name: 'ip-10-0-1-14' },
         { name: 'ip-10-0-2-31' },
@@ -91,13 +93,14 @@ describe('ZoneMap', () => {
     expect(statBlock.textContent).toContain('3');
   });
 
-  it('renders the topbar dot green and no disconnected label when /cluster/info reports healthy', async () => {
+  it('renders the topbar dot green and no disconnected label when /cluster/health reports healthy', async () => {
     mockRouter({
       '/api/cluster/info': () => ({
         name: 'eks-prod-us-east-1',
         region: 'us-east-1',
         healthy: true,
       }),
+      '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [],
       '/api/cluster/deployments': () => [],
       '/api/cluster/pods': () => [],
@@ -112,13 +115,14 @@ describe('ZoneMap', () => {
     expect(container.querySelector('.zm-cluster-status-bad')).toBeNull();
   });
 
-  it('renders the topbar dot red and a disconnected label when /cluster/info reports unhealthy', async () => {
+  it('renders the topbar dot red and a disconnected label when /cluster/health reports unhealthy', async () => {
     mockRouter({
       '/api/cluster/info': () => ({
         name: 'eks-prod-us-east-1',
         region: 'us-east-1',
-        healthy: false,
+        healthy: true,
       }),
+      '/api/cluster/health': () => ({ healthy: false }),
       '/api/cluster/nodes': () => [],
       '/api/cluster/deployments': () => [],
       '/api/cluster/pods': () => [],
@@ -141,6 +145,7 @@ describe('ZoneMap', () => {
         region: 'us-east-1',
         healthy: true,
       }),
+      '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': (params) =>
         params?.namespace === 'api-smoke'

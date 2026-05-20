@@ -87,6 +87,13 @@ export interface ClusterInfo {
   healthy: boolean;
 }
 
+// Live /livez verdict surfaced by GET /api/cluster/health. Split off from
+// ClusterInfo so the UI can poll health on a tight cadence without
+// re-fetching identity on every tick.
+export interface ClusterHealth {
+  healthy: boolean;
+}
+
 export interface ReplicaSet {
   name: string;
   namespace: string;

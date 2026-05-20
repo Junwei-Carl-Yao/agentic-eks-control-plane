@@ -17,6 +17,7 @@ import (
 // only and nothing else.
 func mountClusterRoutes(serveMux *http.ServeMux, reader ClusterReader, enforcer *guardrails.Enforcer, clusterName, clusterRegion string) {
 	serveMux.HandleFunc("GET /api/cluster/info", clusterInfoHandler(reader, clusterName, clusterRegion))
+	serveMux.HandleFunc("GET /api/cluster/health", clusterHealthHandler(reader))
 	serveMux.HandleFunc("GET /api/cluster/deployments", listDeploymentsHandler(reader, enforcer))
 	serveMux.HandleFunc("GET /api/cluster/deployments/{name}", getDeploymentHandler(reader, enforcer))
 	serveMux.HandleFunc("GET /api/cluster/pods", listPodsHandler(reader, enforcer))
@@ -236,6 +237,21 @@ func clusterInfoHandler(reader ClusterReader, name, region string) http.HandlerF
 			return
 		}
 		writeJSON(writer, http.StatusOK, info)
+	}
+}
+
+// clusterHealthHandler returns just the live /livez verdict. Same enforcer
+// bypass rationale as clusterInfoHandler — no namespace-scoped data leaves
+// here. Split off so the UI can poll health on a tight cadence without
+// re-fetching identity each tick.
+func clusterHealthHandler(reader ClusterReader) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		health, err := reader.ClusterHealth(request.Context())
+		if err != nil {
+			writeClusterError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, health)
 	}
 }
 

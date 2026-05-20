@@ -53,6 +53,7 @@ describe('ZoneMap — pod grouping by deployment (spec: chat1.md)', () => {
         region: 'us-east-1',
         healthy: true,
       }),
+      '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': (params) => {
         if (params?.namespace === 'api-smoke') {
@@ -130,6 +131,7 @@ describe('ZoneMap — pod grouping by deployment (spec: chat1.md)', () => {
         region: 'us-east-1',
         healthy: true,
       }),
+      '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': () => [],
       '/api/cluster/pods': (params) => {
@@ -189,6 +191,7 @@ describe('ZoneMap — cross-panel interactions (spec: chat1.md)', () => {
         region: 'us-east-1',
         healthy: true,
       }),
+      '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': (params) => {
         if (params?.namespace === 'api-smoke') {
@@ -272,6 +275,7 @@ describe('ZoneMap — cross-panel interactions (spec: chat1.md)', () => {
         region: 'us-east-1',
         healthy: true,
       }),
+      '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': () => [],
       '/api/cluster/pods': (params) =>
@@ -323,9 +327,46 @@ describe('ZoneMap — cross-panel interactions (spec: chat1.md)', () => {
   });
 });
 
+describe('ZoneMap — identity and health are decoupled (spec: /info vs /health split)', () => {
+  it('renders the identity from /info but drives the dot/disconnected label from /health', async () => {
+    // /info says healthy=true, /health says healthy=false. The topbar must
+    // render the cluster NAME from /info (identity is rendered) AND show the
+    // unhealthy dot + "disconnected" badge sourced from /health. This proves
+    // the dot is driven by /health and is NOT shadowed by /info's flag.
+    mockRouter({
+      '/api/cluster/info': () => ({
+        name: 'eks-prod',
+        region: 'us-east-1',
+        healthy: true,
+      }),
+      '/api/cluster/health': () => ({ healthy: false }),
+      '/api/cluster/nodes': () => [],
+      '/api/cluster/deployments': () => [],
+      '/api/cluster/pods': () => [],
+      '/api/cluster/events': () => [],
+    });
+
+    const { container } = renderWithClient(<ZoneMap />);
+
+    // Identity comes from /info even though /health is unhealthy.
+    await waitFor(() => {
+      expect(screen.getByText(/eks-prod/i)).toBeInTheDocument();
+    });
+    // Dot and badge come from /health (unhealthy), not /info (healthy).
+    await waitFor(() => {
+      expect(container.querySelector('.zm-cluster-dot-unhealthy')).not.toBeNull();
+    });
+    expect(container.querySelector('.zm-cluster-dot-healthy')).toBeNull();
+    const disconnectedBadge = container.querySelector('.zm-cluster-status-bad');
+    expect(disconnectedBadge).not.toBeNull();
+    expect(disconnectedBadge?.textContent?.toLowerCase()).toContain('disconnected');
+  });
+});
+
 describe('ZoneMap — AZ fallback (spec: zone-map.jsx + chat1.md)', () => {
   it('renders 3 AZ columns (us-east-1a/b/c) when the backend returns zero nodes', async () => {
     mockRouter({
+      '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [],
       '/api/cluster/deployments': () => [],
       '/api/cluster/pods': () => [],
@@ -354,6 +395,7 @@ describe('ZoneMap — AZ fallback (spec: zone-map.jsx + chat1.md)', () => {
         region: 'us-east-1',
         healthy: true,
       }),
+      '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-99-1', zone: 'us-west-2x' }],
       '/api/cluster/deployments': () => [],
       '/api/cluster/pods': () => [],
