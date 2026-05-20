@@ -16,21 +16,14 @@ const hookSource = readFileSync(
 
 describe('useClusterQueries', () => {
   it('exports a hook for every section the cluster panel needs', () => {
-    for (const hook of [
-      'useNamespaces',
-      'useNodes',
-      'useDeployments',
-      'usePods',
-      'useServices',
-      'useEvents',
-    ]) {
+    for (const hook of ['useNodes', 'useDeployments', 'usePods', 'useEvents']) {
       expect(hookSource).toMatch(new RegExp(`export\\s+function\\s+${hook}\\b`));
     }
   });
 
   it('every polling useQuery passes refetchInterval: 5000 (the §5.3 5s poll interval)', () => {
     const useQueryBlocks = hookSource.match(/useQuery\s*\(\s*\{[\s\S]*?\}\s*\)/g) ?? [];
-    expect(useQueryBlocks.length).toBeGreaterThanOrEqual(6);
+    expect(useQueryBlocks.length).toBeGreaterThanOrEqual(5);
     for (const block of useQueryBlocks) {
       // Identity opts out by setting staleTime: Infinity instead of polling.
       if (/staleTime:\s*Infinity/.test(block)) continue;

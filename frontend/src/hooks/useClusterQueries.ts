@@ -20,14 +20,6 @@ export function useClusterHealth() {
   });
 }
 
-export function useNamespaces() {
-  return useQuery({
-    queryKey: ['namespaces'],
-    queryFn: () => clusterApi.listNamespaces(),
-    refetchInterval: POLL_INTERVAL_MS,
-  });
-}
-
 export function useNodes() {
   return useQuery({
     queryKey: ['nodes'],
@@ -49,15 +41,6 @@ export function usePods(namespace: string) {
   return useQuery({
     queryKey: ['pods', namespace],
     queryFn: () => clusterApi.listPods(namespace),
-    refetchInterval: POLL_INTERVAL_MS,
-    enabled: namespace.length > 0,
-  });
-}
-
-export function useServices(namespace: string) {
-  return useQuery({
-    queryKey: ['services', namespace],
-    queryFn: () => clusterApi.listServices(namespace),
     refetchInterval: POLL_INTERVAL_MS,
     enabled: namespace.length > 0,
   });

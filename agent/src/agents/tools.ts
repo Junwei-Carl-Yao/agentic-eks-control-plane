@@ -39,11 +39,8 @@ export function buildKubernetesMcpServer(client: BackendClient) {
         {},
         async () => asToolResult(await client.clusterInfo()),
       ),
-      tool(
-        'cluster_health',
-        'Return only the live apiserver healthy flag — cheaper than cluster_info when identity is already known.',
-        {},
-        async () => asToolResult(await client.clusterHealth()),
+      tool('cluster_health', 'Return only the live apiserver healthy flag.', {}, async () =>
+        asToolResult(await client.clusterHealth()),
       ),
       tool(
         'list_deployments',

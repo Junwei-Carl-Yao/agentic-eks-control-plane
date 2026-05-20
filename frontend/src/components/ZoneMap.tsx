@@ -237,14 +237,17 @@ export function ZoneMap() {
 
   const clusterName = identityQuery.data?.name ?? '—';
   const clusterRegion = identityQuery.data?.region ?? FALLBACK_REGION;
-  // Until the health probe lands, we don't know either way — render neutral.
-  // Once it lands, `healthy: false` swaps the dot red and surfaces a label so
-  // an unreachable apiserver isn't hidden behind merely-stale tile data.
-  const clusterStatus: 'pending' | 'healthy' | 'unhealthy' = !healthQuery.data
-    ? 'pending'
-    : healthQuery.data.healthy
-      ? 'healthy'
-      : 'unhealthy';
+  // The probe has three observable states. A request error must collapse to
+  // `unhealthy` — an unreachable backend is exactly what the red dot signals.
+  // Leaving it on `pending` would silently hide outages behind a grey "still
+  // connecting" indicator forever.
+  const clusterStatus: 'pending' | 'healthy' | 'unhealthy' = healthQuery.error
+    ? 'unhealthy'
+    : healthQuery.data
+      ? healthQuery.data.healthy
+        ? 'healthy'
+        : 'unhealthy'
+      : 'pending';
 
   return (
     <div className="zm-root">
