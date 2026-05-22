@@ -108,7 +108,7 @@ func (enforcer *Enforcer) Scale(request models.ScaleRequest) Decision {
 	); reason != "" {
 		return enforcer.deny("scale", subject, reason)
 	}
-	if err := validReplicas(request.Replicas, MaxReplicas); err != nil {
+	if err := validReplicas(request.Replicas, MinReplicas, MaxReplicas); err != nil {
 		return enforcer.deny("scale", subject, err.Error())
 	}
 	return enforcer.allow("scale", subject)

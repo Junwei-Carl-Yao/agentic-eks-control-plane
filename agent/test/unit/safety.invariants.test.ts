@@ -67,13 +67,13 @@ describe('tools.ts contains no client-side policy logic', () => {
   const backendClientSource = readSrc('backendClient.ts');
 
   it('tools.ts has no hardcoded namespace allowlist', () => {
-    // 'api-smoke' may appear in the system prompt or in a comment, but not
+    // 'control-plane' may appear in the system prompt or in a comment, but not
     // as a comparison or list inside tools.ts.
     expect(toolsSource).not.toMatch(/allowed_?namespaces?\s*[:=]/i);
-    expect(toolsSource).not.toMatch(/===?\s*['"]api-smoke['"]/);
-    expect(toolsSource).not.toMatch(/\.includes\(\s*['"]api-smoke['"]\s*\)/);
+    expect(toolsSource).not.toMatch(/===?\s*['"]control-plane['"]/);
+    expect(toolsSource).not.toMatch(/\.includes\(\s*['"]control-plane['"]\s*\)/);
     // Ban a literal allowlist array of namespaces in tools.ts.
-    expect(toolsSource).not.toMatch(/\[\s*['"]api-smoke['"]\s*[,\]]/);
+    expect(toolsSource).not.toMatch(/\[\s*['"]control-plane['"]\s*[,\]]/);
   });
 
   it('tools.ts has no replica-cap constant or comparison', () => {
@@ -84,7 +84,7 @@ describe('tools.ts contains no client-side policy logic', () => {
   it('backendClient.ts does no policy decisions', () => {
     expect(backendClientSource).not.toMatch(/max_?replicas/i);
     expect(backendClientSource).not.toMatch(/allowed_?namespaces?/i);
-    expect(backendClientSource).not.toMatch(/api-smoke/i);
+    expect(backendClientSource).not.toMatch(/control-plane/i);
   });
 });
 

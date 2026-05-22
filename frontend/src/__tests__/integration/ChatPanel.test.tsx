@@ -78,7 +78,7 @@ describe('ChatPanel — wire contract', () => {
 
   it('omits tool_call / tool_result events from the transcript on subsequent turns', async () => {
     const turn1 = makeSseResponse([
-      'data: {"type":"tool_call","id":"call-1","tool":"list_pods","input":{"namespace":"api-smoke"}}\n\n',
+      'data: {"type":"tool_call","id":"call-1","tool":"list_pods","input":{"namespace":"control-plane"}}\n\n',
       'data: {"type":"tool_result","id":"call-1","ok":true,"result":{"pods":[]},"error":null}\n\n',
       'data: {"type":"text","delta":"all good"}\n\n',
       'data: {"type":"done"}\n\n',
@@ -233,7 +233,7 @@ describe('ChatPanel — wire contract', () => {
   it('renders tool_call frames but hides tool_result payloads from the transcript', async () => {
     captureFetch(() =>
       makeSseResponse([
-        'data: {"type":"tool_call","id":"c1","tool":"list_pods","input":{"namespace":"api-smoke"}}\n\n',
+        'data: {"type":"tool_call","id":"c1","tool":"list_pods","input":{"namespace":"control-plane"}}\n\n',
         'data: {"type":"tool_result","id":"c1","ok":true,"result":{"pods":["api-123"]},"error":null}\n\n',
         'data: {"type":"text","delta":"done thinking"}\n\n',
         'data: {"type":"done"}\n\n',

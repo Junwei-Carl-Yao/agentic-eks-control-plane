@@ -35,3 +35,16 @@ func TestPolicy_NewDefensivelyCopiesSlices(t *testing.T) {
 		t.Error("post-construction slice mutation widened the namespace allowlist")
 	}
 }
+
+// Scenario: MinReplicas must be a positive int and strictly less than
+// MaxReplicas. Per §3.1 the floor exists so a rolling restart never drops a
+// deployment to zero — a non-positive floor would invalidate that, and a
+// floor >= ceiling would leave no legal scale value at all.
+func TestPolicy_MinReplicasIsPositiveAndBelowMax(t *testing.T) {
+	if MinReplicas <= 0 {
+		t.Errorf("MinReplicas = %d, want > 0", MinReplicas)
+	}
+	if MinReplicas >= MaxReplicas {
+		t.Errorf("MinReplicas (%d) must be < MaxReplicas (%d)", MinReplicas, MaxReplicas)
+	}
+}

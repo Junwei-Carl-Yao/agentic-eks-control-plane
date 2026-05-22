@@ -39,12 +39,12 @@ func validDNS1123(value, label string) error {
 	return nil
 }
 
-// validReplicas enforces the implementation §3.2 bounds: positive and within
-// MaxReplicas. The "positive" half also lives at the K8s op layer, but we
-// duplicate it here so the audit log carries the right reason code.
-func validReplicas(requested, maximum int) error {
-	if requested < 1 {
-		return fmt.Errorf("replicas must be >= 1, got %d", requested)
+// validReplicas enforces the implementation §3.2 bounds: between MinReplicas
+// and MaxReplicas inclusive. The lower bound also lives at the K8s op layer,
+// but we duplicate it here so the audit log carries the right reason code.
+func validReplicas(requested, minimum, maximum int) error {
+	if requested < minimum {
+		return fmt.Errorf("replicas %d is below MinReplicas=%d", requested, minimum)
 	}
 	if requested > maximum {
 		return fmt.Errorf("replicas %d exceeds MaxReplicas=%d", requested, maximum)

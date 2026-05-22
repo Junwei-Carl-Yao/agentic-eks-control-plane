@@ -256,7 +256,7 @@ describe('POST /api/agent/chat', () => {
                 type: 'tool_use',
                 id: 'tool-call-1',
                 name: 'mcp__kubernetes__list_deployments',
-                input: { namespace: 'api-smoke' },
+                input: { namespace: 'control-plane' },
               },
             ],
           },
@@ -303,7 +303,7 @@ describe('POST /api/agent/chat', () => {
     const toolResult = frames[toolResultIndex] as unknown as { id: string; ok: boolean };
     expect(toolCall.id).toBe(toolResult.id);
     expect(toolCall.tool).toBe('list_deployments'); // mcp prefix stripped
-    expect(toolCall.input).toEqual({ namespace: 'api-smoke' });
+    expect(toolCall.input).toEqual({ namespace: 'control-plane' });
     expect(toolResult.ok).toBe(true);
   });
 
@@ -341,7 +341,7 @@ describe('POST /api/agent/chat', () => {
 
     const secondResponse = await postChat(handle.port, {
       transcript: [{ role: 'user', content: 'what nodes are there' }],
-      message: 'list deployments in api-smoke',
+      message: 'list deployments in control-plane',
     });
     await secondResponse.text();
 
@@ -361,7 +361,7 @@ describe('POST /api/agent/chat', () => {
     expect(secondInvocation.prompt).not.toContain('scaled to 2');
     expect(secondInvocation.prompt).not.toContain('now scale to 3');
     expect(secondInvocation.prompt).toContain('what nodes are there');
-    expect(secondInvocation.prompt).toContain('list deployments in api-smoke');
+    expect(secondInvocation.prompt).toContain('list deployments in control-plane');
   });
 
   it('treats an empty transcript as just the message (no leakage between calls)', async () => {

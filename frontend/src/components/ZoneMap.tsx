@@ -12,7 +12,7 @@ import type { ClusterEvent, Deployment, Node, Pod } from '@/types';
 
 import { Splitter } from './Splitter';
 
-const PRIMARY_NAMESPACE = 'api-smoke';
+const PRIMARY_NAMESPACE = 'control-plane';
 const FALLBACK_REGION = 'us-east-1';
 const UNSCHEDULED_BUCKET = 'unscheduled';
 

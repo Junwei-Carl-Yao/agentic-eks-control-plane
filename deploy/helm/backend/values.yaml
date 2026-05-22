@@ -1,1 +1,44 @@
-# Default backend values.
+# Backend chart values. Two replicas matches MinReplicas in
+# backend/internal/guardrails so a rolling restart never drops the API to
+# zero availability — keep these aligned.
+namespace: control-plane
+
+# ServiceAccount + IRSA. roleArn comes from the Terraform output
+# irsa_backend_role_arn (Phase 1.5). The namespace/name pair must match the
+# values pinned in the IRSA trust policy; changing them invalidates the
+# AssumeRoleWithWebIdentity sub condition.
+serviceAccount:
+  name: backend
+  roleArn: ""
+
+image:
+  repository: ghcr.io/your-org/eks-control-plane-backend
+  tag: dev
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# 30s leaves room for the SIGTERM handler in cmd/server/main.go to drain
+# in-flight requests under its 25s httpServer.Shutdown cap before the
+# kubelet escalates to SIGKILL.
+terminationGracePeriodSeconds: 30
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+service:
+  port: 8000
+
+# ConfigMap keys consumed by backend/internal/config/config.go.
+# KUBECONFIG is deliberately omitted so the client falls back to the
+# in-cluster ServiceAccount token (kubernetes.NewClient path).
+config:
+  awsRegion: us-east-1
+  clusterName: eks-control-plane
+  corsOrigins: "" # populated with the ALB hostname at deploy time
+  addr: ":8000"

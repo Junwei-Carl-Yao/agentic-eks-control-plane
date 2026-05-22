@@ -1,0 +1,48 @@
+# Agent runtime values. Two replicas: the runtime is stateless per Phase 4.5
+# (every chat turn carries the full transcript), so the Service can load-
+# balance any turn to any pod.
+namespace: control-plane
+
+serviceAccount:
+  name: agent
+
+image:
+  repository: ghcr.io/your-org/eks-control-plane-agent
+  tag: dev
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# 30s leaves room for the SIGTERM handler in agent/src/shutdown.ts to close
+# in-flight SSE streams under its 25s force-exit cap before the kubelet
+# escalates to SIGKILL.
+terminationGracePeriodSeconds: 30
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# service.port must match config.port and the /api/agent/* upstream in the
+# ALB Ingress (deploy/ingress/alb-ingress.yaml).
+service:
+  port: 8081
+
+# ConfigMap keys consumed by agent/src/config.ts. ANTHROPIC_API_KEY_FILE is
+# deliberately omitted; in-cluster, the key comes from the Secret below.
+config:
+  # in-cluster backend Service DNS — keeps agent→backend traffic off the
+  # public ALB. Trailing slash is stripped at load time.
+  backendUrl: http://backend.control-plane.svc.cluster.local:8000
+  port: 8081
+  logLevel: info
+
+# Secret is provisioned out-of-band (kubectl create secret) so the API key
+# never lands in values.yaml or the chart history. The chart only references
+# it by name and binds it as an env var.
+anthropicApiKeySecret:
+  name: agent-anthropic
+  key: ANTHROPIC_API_KEY

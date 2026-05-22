@@ -16,7 +16,7 @@ export interface RecordedCall {
 
 export interface MockBackendOptions {
   // Mirror of backend guardrail policy. Defaults match production: only
-  // api-smoke is allowed and the replica cap is 10.
+  // control-plane is allowed and the replica cap is 10.
   allowedNamespaces?: string[];
   maxReplicas?: number;
 }
@@ -34,7 +34,7 @@ export interface MockBackendHandle {
 export async function startMockBackend(
   options: MockBackendOptions = {},
 ): Promise<MockBackendHandle> {
-  const allowedNamespaces = options.allowedNamespaces ?? ['api-smoke'];
+  const allowedNamespaces = options.allowedNamespaces ?? ['control-plane'];
   const maxReplicas = options.maxReplicas ?? 10;
 
   const calls: RecordedCall[] = [];

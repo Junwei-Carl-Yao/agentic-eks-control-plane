@@ -37,24 +37,51 @@ func TestValidDNS1123_RejectsInvalid(t *testing.T) {
 	}
 }
 
-// Scenario: replicas must be >= 1 and <= maximum.
+// Scenario: replicas must be >= minimum and <= maximum. Covers below-minimum,
+// at-minimum, an interior value, at-maximum, and above-maximum so each branch
+// of the §3.2 bounds check has a witness.
 func TestValidReplicas_BoundsCheck(t *testing.T) {
 	cases := []struct {
+		name      string
 		requested int
+		minimum   int
 		maximum   int
 		wantErr   bool
+		errSubstr string
 	}{
-		{1, 10, false},
-		{10, 10, false},
-		{0, 10, true},
-		{-1, 10, true},
-		{11, 10, true},
+		{"below minimum", 1, 2, 10, true, "MinReplicas"},
+		{"at minimum", 2, 2, 10, false, ""},
+		{"interior", 5, 2, 10, false, ""},
+		{"at maximum", 10, 2, 10, false, ""},
+		{"above maximum", 11, 2, 10, true, "MaxReplicas"},
+		{"zero below minimum", 0, 2, 10, true, "MinReplicas"},
+		{"negative below minimum", -1, 2, 10, true, "MinReplicas"},
 	}
 	for _, testCase := range cases {
-		err := validReplicas(testCase.requested, testCase.maximum)
+		err := validReplicas(testCase.requested, testCase.minimum, testCase.maximum)
 		if (err != nil) != testCase.wantErr {
-			t.Errorf("requested=%d max=%d → err=%v, wantErr=%v", testCase.requested, testCase.maximum, err, testCase.wantErr)
+			t.Errorf("%s: requested=%d min=%d max=%d → err=%v, wantErr=%v",
+				testCase.name, testCase.requested, testCase.minimum, testCase.maximum, err, testCase.wantErr)
+			continue
 		}
+		if testCase.wantErr && !strings.Contains(err.Error(), testCase.errSubstr) {
+			t.Errorf("%s: err = %q, want substring %q", testCase.name, err.Error(), testCase.errSubstr)
+		}
+	}
+}
+
+// Scenario: validReplicas called with the production MinReplicas/MaxReplicas
+// constants honors both bounds. Pins the wiring between the constants and the
+// validator so a future rename of either constant has to update this test.
+func TestValidReplicas_UsesProductionBounds(t *testing.T) {
+	if err := validReplicas(MinReplicas, MinReplicas, MaxReplicas); err != nil {
+		t.Errorf("requested=MinReplicas should pass: %v", err)
+	}
+	if err := validReplicas(MinReplicas-1, MinReplicas, MaxReplicas); err == nil {
+		t.Errorf("requested=MinReplicas-1 should fail")
+	}
+	if err := validReplicas(MaxReplicas+1, MinReplicas, MaxReplicas); err == nil {
+		t.Errorf("requested=MaxReplicas+1 should fail")
 	}
 }
 

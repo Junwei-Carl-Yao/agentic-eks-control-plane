@@ -9,6 +9,12 @@ package guardrails
 // rebuilding the binary.
 const MaxReplicas = 10
 
+// MinReplicas is the hard lower bound on Scale.Replicas. Set to 2 so a
+// rolling restart of a single deployment can never drop the app to zero
+// available pods; the default RollingUpdate strategy keeps at least one
+// replica serving while the other is replaced.
+const MinReplicas = 2
+
 // Policy is the static guardrail policy. It is passed by value into New and
 // copied defensively, so widening the policy is impossible without
 // constructing a fresh Enforcer at the binary's boot path. There is no
@@ -22,7 +28,7 @@ type Policy struct {
 // rather than mutating this one.
 func DefaultPolicy() Policy {
 	return Policy{
-		AllowedNamespaces: []string{"api-smoke"},
+		AllowedNamespaces: []string{"control-plane"},
 	}
 }
 

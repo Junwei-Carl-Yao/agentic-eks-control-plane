@@ -34,7 +34,7 @@ func TestEnforcer_ScaleAllow(t *testing.T) {
 // mentioning the namespace, even if the rest of the request is valid.
 func TestEnforcer_ScaleUnallowlistedNamespace(t *testing.T) {
 	enforcer, _ := newEnforcer(t)
-	decision := enforcer.Scale(models.ScaleRequest{Namespace: "kube-system", Name: "web", Replicas: 1})
+	decision := enforcer.Scale(models.ScaleRequest{Namespace: "kube-system", Name: "web", Replicas: MinReplicas})
 	if decision.Allow || !strings.Contains(decision.Reason, "kube-system") {
 		t.Errorf("decision = %+v, want deny mentioning kube-system", decision)
 	}
@@ -53,9 +53,47 @@ func TestEnforcer_ScaleOverMaxReplicas(t *testing.T) {
 // Scenario: invalid resource name (uppercase violates DNS-1123) → deny.
 func TestEnforcer_ScaleInvalidName(t *testing.T) {
 	enforcer, _ := newEnforcer(t)
-	decision := enforcer.Scale(models.ScaleRequest{Namespace: allowedNamespace, Name: "Web", Replicas: 1})
+	decision := enforcer.Scale(models.ScaleRequest{Namespace: allowedNamespace, Name: "Web", Replicas: MinReplicas})
 	if decision.Allow {
 		t.Errorf("decision = %+v, want deny on invalid name", decision)
+	}
+}
+
+// Scenario: scale below MinReplicas → deny. The reason must mention the floor
+// (MinReplicas) so operators and the UI can render which bound was hit.
+// MinReplicas-1 covers the just-under boundary; 0 covers the legacy
+// "positive" case that used to be the only floor.
+func TestEnforcer_ScaleBelowMinReplicasDenied(t *testing.T) {
+	enforcer, _ := newEnforcer(t)
+	for _, replicasBelowFloor := range []int{MinReplicas - 1, 0, -1} {
+		decision := enforcer.Scale(models.ScaleRequest{Namespace: allowedNamespace, Name: "web", Replicas: replicasBelowFloor})
+		if decision.Allow {
+			t.Errorf("replicas=%d: decision = %+v, want deny", replicasBelowFloor, decision)
+			continue
+		}
+		if !strings.Contains(decision.Reason, "MinReplicas") {
+			t.Errorf("replicas=%d: reason = %q, want substring %q", replicasBelowFloor, decision.Reason, "MinReplicas")
+		}
+	}
+}
+
+// Scenario: scale at exactly MinReplicas → allow. The bound is inclusive per
+// §3.2, so the floor itself must not be rejected.
+func TestEnforcer_ScaleAtMinReplicasAllowed(t *testing.T) {
+	enforcer, _ := newEnforcer(t)
+	decision := enforcer.Scale(models.ScaleRequest{Namespace: allowedNamespace, Name: "web", Replicas: MinReplicas})
+	if !decision.Allow {
+		t.Errorf("decision = %+v, want allow at MinReplicas=%d", decision, MinReplicas)
+	}
+}
+
+// Scenario: scale at exactly MaxReplicas → allow. Mirrors the at-min test for
+// the upper end of the inclusive bound.
+func TestEnforcer_ScaleAtMaxReplicasAllowed(t *testing.T) {
+	enforcer, _ := newEnforcer(t)
+	decision := enforcer.Scale(models.ScaleRequest{Namespace: allowedNamespace, Name: "web", Replicas: MaxReplicas})
+	if !decision.Allow {
+		t.Errorf("decision = %+v, want allow at MaxReplicas=%d", decision, MaxReplicas)
 	}
 }
 
@@ -83,8 +121,8 @@ func TestEnforcer_RollbackAllow(t *testing.T) {
 // allow?" — silently dropped denies would defeat the audit trail.
 func TestEnforcer_EmitsAuditLogForAllowAndDeny(t *testing.T) {
 	enforcer, logBuffer := newEnforcer(t)
-	enforcer.Scale(models.ScaleRequest{Namespace: allowedNamespace, Name: "web", Replicas: 1})
-	enforcer.Scale(models.ScaleRequest{Namespace: "kube-system", Name: "web", Replicas: 1})
+	enforcer.Scale(models.ScaleRequest{Namespace: allowedNamespace, Name: "web", Replicas: MinReplicas})
+	enforcer.Scale(models.ScaleRequest{Namespace: "kube-system", Name: "web", Replicas: MinReplicas})
 
 	logLines := strings.Split(strings.TrimSpace(logBuffer.String()), "\n")
 	if len(logLines) != 2 {

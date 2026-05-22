@@ -1,1 +1,6 @@
-# Helm chart metadata for the backend.
+apiVersion: v2
+name: backend
+description: Backend API for the Agentic EKS Control Plane.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

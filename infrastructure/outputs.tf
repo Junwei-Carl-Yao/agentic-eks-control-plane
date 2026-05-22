@@ -73,6 +73,11 @@ output "irsa_backend_role_arn" {
   value       = module.iam.irsa_backend_role_arn
 }
 
+output "irsa_lbc_role_arn" {
+  description = "ARN of the IRSA role assumable by the AWS Load Balancer Controller ServiceAccount."
+  value       = module.iam.irsa_lbc_role_arn
+}
+
 output "backend_service_account" {
   description = "Fully-qualified ServiceAccount (namespace:name) pinned in the IRSA trust policy."
   value       = "${var.backend_namespace}:${var.backend_service_account}"

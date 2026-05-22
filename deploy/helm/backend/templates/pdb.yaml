@@ -1,0 +1,15 @@
+# minAvailable: 1 keeps at least one backend pod serving during a voluntary
+# disruption (node drain, cluster autoscaler scale-down, version upgrade), so
+# the API stays available while replicas roll.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "backend.selectorLabels" . | nindent 6 }}
