@@ -33,11 +33,22 @@ REGION="$(tfout region)"
 VPC_ID="$(tfout vpc_id)"
 BACKEND_ROLE_ARN="$(tfout irsa_backend_role_arn)"
 LBC_ROLE_ARN="$(tfout irsa_lbc_role_arn)"
+CERT_ARN="$(tfout certificate_arn || true)"
+APP_URL="$(tfout app_url || true)"
 
 : "${CLUSTER:?missing terraform output cluster_name}"
 : "${REGION:?missing terraform output region}"
 : "${BACKEND_ROLE_ARN:?missing terraform output irsa_backend_role_arn}"
 : "${LBC_ROLE_ARN:?missing terraform output irsa_lbc_role_arn}"
+
+# The Ingress YAML (deploy/ingress/alb-ingress.yaml) references __CERT_ARN__
+# and __HOST__ placeholders that get substituted from Terraform outputs at
+# apply time. Both must be set — if domain_name is empty in tfvars, the
+# outputs come back blank and we bail rather than ship a half-templated
+# manifest the apiserver would reject on the certificate-arn annotation.
+: "${CERT_ARN:?missing terraform output certificate_arn — set domain_name, subdomain, hosted_zone_id in envs/$TF_ENV/terraform.tfvars and re-run terraform apply}"
+: "${APP_URL:?missing terraform output app_url — set domain_name, subdomain, hosted_zone_id in envs/$TF_ENV/terraform.tfvars and re-run terraform apply}"
+APP_HOST="${APP_URL#https://}"
 
 echo "==> Updating kubeconfig for $CLUSTER ($REGION)"
 aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION" >/dev/null
@@ -99,8 +110,11 @@ helm upgrade --install frontend "$HELM_DIR/frontend" \
   --set image.tag="$IMAGE_TAG" \
   --wait --timeout 5m
 
-echo "==> Applying ALB Ingress (6.5)"
-kubectl -n "$NAMESPACE" apply -f "$INGRESS_FILE"
+echo "==> Applying ALB Ingress (6.5) with cert $CERT_ARN and host $APP_HOST"
+INGRESS_RENDERED="$(mktemp)"
+trap 'rm -f "$INGRESS_RENDERED"' EXIT
+sed -e "s|__CERT_ARN__|$CERT_ARN|g" -e "s|__HOST__|$APP_HOST|g" "$INGRESS_FILE" > "$INGRESS_RENDERED"
+kubectl -n "$NAMESPACE" apply -f "$INGRESS_RENDERED"
 
 echo "==> Waiting for ALB hostname to be assigned"
 HOST=""
@@ -116,12 +130,18 @@ if [[ -z "$HOST" ]]; then
 fi
 echo "    ALB hostname: $HOST"
 
-echo "==> Re-rendering backend with CORS_ORIGINS=http://$HOST"
+echo "==> Re-rendering backend with CORS_ORIGINS=http://$HOST,$APP_URL"
 helm upgrade --install backend "$HELM_DIR/backend" \
   --namespace "$NAMESPACE" \
   --reuse-values \
-  --set config.corsOrigins="http://$HOST" \
+  --set config.corsOrigins="http://$HOST,$APP_URL" \
   --wait --timeout 5m
 
 echo ""
-echo "Deploy complete. ALB hostname: http://$HOST"
+echo "ALB hostname (raw): http://$HOST"
+echo "Custom URL:         $APP_URL"
+echo ""
+echo "Phase 3 (if not yet run): write the Route53 alias for $APP_HOST →"
+echo "  terraform -chdir=$INFRA_DIR apply -var-file=envs/${TF_ENV:-dev}/terraform.tfvars -var='create_dns_alias=true'"
+echo ""
+echo "Deploy complete."

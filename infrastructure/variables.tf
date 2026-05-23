@@ -86,3 +86,27 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "domain_name" {
+  description = "Apex domain (the public Route53 hosted zone). The custom URL is <subdomain>.<domain_name>."
+  type        = string
+  default     = ""
+}
+
+variable "subdomain" {
+  description = "Subdomain prepended to domain_name to form the app's public hostname."
+  type        = string
+  default     = ""
+}
+
+variable "hosted_zone_id" {
+  description = "Route53 hosted zone ID for domain_name. Required when domain_name is set."
+  type        = string
+  default     = ""
+}
+
+variable "create_dns_alias" {
+  description = "Phase-2 toggle: when true, look up the LBC-managed ALB by tag and write the A-alias record. Leave false on the first apply (before make deploy creates the ALB) and flip to true on the second apply."
+  type        = bool
+  default     = false
+}
