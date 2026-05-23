@@ -100,7 +100,7 @@ dev-backend:
 	cd $(BACKEND_DIR) && $(GO) run ./cmd/server
 
 dev-frontend:
-	@echo "[placeholder] frontend dev server (npm run dev)"
+	cd $(FRONTEND_DIR) && npm run dev
 
 test: test-backend test-frontend
 
@@ -108,7 +108,7 @@ test-backend:
 	cd $(BACKEND_DIR) && $(GO) test ./...
 
 test-frontend:
-	@echo "[placeholder] frontend tests (vitest)"
+	cd $(FRONTEND_DIR) && npm test -- --run
 
 lint: lint-backend lint-frontend lint-agent lint-terraform
 

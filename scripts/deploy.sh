@@ -9,6 +9,16 @@
 #
 # Required Terraform outputs (from `make apply`):
 #   cluster_name, region, vpc_id, irsa_backend_role_arn, irsa_lbc_role_arn
+#
+# Image tags:
+#   IMAGE_TAG          — fallback for every component (default: dev)
+#   BACKEND_IMAGE_TAG  — overrides IMAGE_TAG for backend only
+#   AGENT_IMAGE_TAG    — overrides IMAGE_TAG for agent only
+#   FRONTEND_IMAGE_TAG — overrides IMAGE_TAG for frontend only
+#
+# Other knobs:
+#   REPLICA_COUNT — preserve a manually-scaled deployment across upgrade.
+#                   Unset = use chart default (2).
 
 set -euo pipefail
 
@@ -22,6 +32,31 @@ NAMESPACE="${NAMESPACE:-control-plane}"
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/your-org}"
 IMAGE_TAG="${IMAGE_TAG:-dev}"
 LBC_CHART_VERSION="${LBC_CHART_VERSION:-1.13.4}"
+
+# Per-component image tag overrides. If unset, each falls back to IMAGE_TAG.
+# Lets a redeploy bump only one component, e.g. `BACKEND_IMAGE_TAG=v5 make deploy`.
+BACKEND_IMAGE_TAG="${BACKEND_IMAGE_TAG:-$IMAGE_TAG}"
+AGENT_IMAGE_TAG="${AGENT_IMAGE_TAG:-$IMAGE_TAG}"
+FRONTEND_IMAGE_TAG="${FRONTEND_IMAGE_TAG:-$IMAGE_TAG}"
+
+# REPLICA_COUNT overrides the chart default (2) for every app chart. Set to
+# preserve a manually-scaled deployment across a helm upgrade — without it,
+# helm would attempt to scale back to the chart default and conflict with
+# the `server` field manager that owns `.spec.replicas` after `kubectl scale`.
+REPLICA_COUNT="${REPLICA_COUNT:-}"
+REPLICA_FLAG=()
+if [[ -n "$REPLICA_COUNT" ]]; then
+  REPLICA_FLAG=(--set "replicaCount=$REPLICA_COUNT")
+fi
+
+# helm 4's --force-conflicts makes server-side apply claim ownership of any
+# field that a non-helm manager (kubectl scale, kubectl set image, a prior
+# direct PATCH from the agent's rollout-restart path) currently owns.
+# Without this, a `make deploy` against a cluster that has been touched out
+# of band fails with a CONFLICT response from kube-apiserver. The flag only
+# affects fields the chart explicitly sets, so unrelated field ownership is
+# preserved.
+HELM_SSA_FLAGS=(--force-conflicts)
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing dependency: $1" >&2; exit 2; }; }
 need aws; need kubectl; need helm; need terraform
@@ -84,35 +119,42 @@ helm upgrade --install metrics-server metrics-server/metrics-server \
   --namespace kube-system \
   --wait --timeout 5m
 
-echo "==> Installing backend (6.1)"
+echo "==> Installing backend (6.1) at tag $BACKEND_IMAGE_TAG"
 helm upgrade --install backend "$HELM_DIR/backend" \
   --namespace "$NAMESPACE" \
+  "${HELM_SSA_FLAGS[@]}" \
+  "${REPLICA_FLAG[@]}" \
   --set image.repository="$IMAGE_REGISTRY/eks-control-plane-backend" \
-  --set image.tag="$IMAGE_TAG" \
+  --set image.tag="$BACKEND_IMAGE_TAG" \
   --set serviceAccount.roleArn="$BACKEND_ROLE_ARN" \
   --set config.awsRegion="$REGION" \
   --set config.clusterName="$CLUSTER" \
   --wait --timeout 5m
 
-echo "==> Installing agent (6.2)"
+echo "==> Installing agent (6.2) at tag $AGENT_IMAGE_TAG"
 # The Anthropic API key Secret (agent-anthropic) must already exist in
 # $NAMESPACE; the chart references it but never creates it.
 helm upgrade --install agent "$HELM_DIR/agent" \
   --namespace "$NAMESPACE" \
+  "${HELM_SSA_FLAGS[@]}" \
+  "${REPLICA_FLAG[@]}" \
   --set image.repository="$IMAGE_REGISTRY/eks-control-plane-agent" \
-  --set image.tag="$IMAGE_TAG" \
+  --set image.tag="$AGENT_IMAGE_TAG" \
   --wait --timeout 5m
 
-echo "==> Installing frontend (6.3)"
+echo "==> Installing frontend (6.3) at tag $FRONTEND_IMAGE_TAG"
 helm upgrade --install frontend "$HELM_DIR/frontend" \
   --namespace "$NAMESPACE" \
+  "${HELM_SSA_FLAGS[@]}" \
+  "${REPLICA_FLAG[@]}" \
   --set image.repository="$IMAGE_REGISTRY/eks-control-plane-frontend" \
-  --set image.tag="$IMAGE_TAG" \
+  --set image.tag="$FRONTEND_IMAGE_TAG" \
   --wait --timeout 5m
 
 echo "==> Applying ALB Ingress (6.5) with cert $CERT_ARN and host $APP_HOST"
 INGRESS_RENDERED="$(mktemp)"
-trap 'rm -f "$INGRESS_RENDERED"' EXIT
+CORS_VALUES="$(mktemp)"
+trap 'rm -f "$INGRESS_RENDERED" "$CORS_VALUES"' EXIT
 sed -e "s|__CERT_ARN__|$CERT_ARN|g" -e "s|__HOST__|$APP_HOST|g" "$INGRESS_FILE" > "$INGRESS_RENDERED"
 kubectl -n "$NAMESPACE" apply -f "$INGRESS_RENDERED"
 
@@ -131,10 +173,19 @@ fi
 echo "    ALB hostname: $HOST"
 
 echo "==> Re-rendering backend with CORS_ORIGINS=http://$HOST,$APP_URL"
+# helm --set splits the value on commas, so a CSV like
+# "http://host1,https://host2" would be parsed as two key=value pairs and
+# fail. Write to a tmp values file instead — YAML strings don't have that
+# problem.
+cat > "$CORS_VALUES" <<EOF
+config:
+  corsOrigins: "http://$HOST,$APP_URL"
+EOF
 helm upgrade --install backend "$HELM_DIR/backend" \
   --namespace "$NAMESPACE" \
   --reuse-values \
-  --set config.corsOrigins="http://$HOST,$APP_URL" \
+  "${HELM_SSA_FLAGS[@]}" \
+  -f "$CORS_VALUES" \
   --wait --timeout 5m
 
 echo ""
