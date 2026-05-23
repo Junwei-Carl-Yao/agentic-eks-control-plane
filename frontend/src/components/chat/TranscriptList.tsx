@@ -13,8 +13,8 @@ interface TranscriptListProps {
 
 const SUGGESTIONS = [
   'What pods are failing?',
-  'Scale api to 8 replicas',
-  'Restart the web rollout',
+  'Scale agent to 9 replicas',
+  'Restart the frontend rollout',
 ];
 
 export function TranscriptList({ messages, isStreaming, onSuggestion }: TranscriptListProps) {

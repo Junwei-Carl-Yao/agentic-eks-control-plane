@@ -148,3 +148,58 @@ resource "aws_iam_role_policy" "irsa_backend" {
   role   = aws_iam_role.irsa_backend.id
   policy = data.aws_iam_policy_document.irsa_backend_policy.json
 }
+
+# ---------------------------------------------------------------------------
+# IRSA role for the AWS Load Balancer Controller (Phase 6.4)
+#
+# Separate from the backend IRSA in this same module: the LBC reconciles
+# Ingress objects cluster-wide and needs to mutate ALBs/target groups, which
+# is far broader than the backend's read-only EKS surface. Keeping it in its
+# own role + policy keeps blast radius scoped per Phase 6 invariants.
+#
+# Trust: federated on the cluster OIDC provider, pinned to
+# kube-system:aws-load-balancer-controller (the SA the upstream chart
+# installs into).
+# Permissions: the upstream policy from
+# kubernetes-sigs/aws-load-balancer-controller, checked into this module so
+# `make apply` needs no network access mid-plan.
+# ---------------------------------------------------------------------------
+data "aws_iam_policy_document" "lbc_assume" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [var.oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_host}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_host}:sub"
+      values   = ["system:serviceaccount:${var.lbc_namespace}:${var.lbc_service_account}"]
+    }
+  }
+}
+
+resource "aws_iam_role" "lbc" {
+  name               = "${var.cluster_name}-irsa-lbc"
+  assume_role_policy = data.aws_iam_policy_document.lbc_assume.json
+}
+
+resource "aws_iam_policy" "lbc" {
+  name        = "${var.cluster_name}-lbc-policy"
+  description = "Upstream IAM policy for the AWS Load Balancer Controller v2.x."
+  policy      = file("${path.module}/aws_load_balancer_controller_policy.json")
+}
+
+resource "aws_iam_role_policy_attachment" "lbc" {
+  role       = aws_iam_role.lbc.name
+  policy_arn = aws_iam_policy.lbc.arn
+}

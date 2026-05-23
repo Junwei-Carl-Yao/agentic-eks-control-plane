@@ -201,7 +201,7 @@ func TestMutationRoutes_NotFoundMapsTo404(t *testing.T) {
 	handler := newTestHandlerWithOps(operationsStub)
 	responseRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodPost, "/api/operations/scale",
-		strings.NewReader(`{"namespace":"app","name":"ghost","replicas":1}`)))
+		strings.NewReader(`{"namespace":"app","name":"ghost","replicas":2}`)))
 	if responseRecorder.Code != 404 {
 		t.Errorf("status = %d, want 404", responseRecorder.Code)
 	}

@@ -1,6 +1,6 @@
 param(
     [string]$ClusterName = "ekscp-local",
-    [string]$Namespace = "api-smoke",
+    [string]$Namespace = "control-plane",
     [string]$BackendDir = "backend",
     [string]$BaseUrl = "http://localhost:8000"
 )

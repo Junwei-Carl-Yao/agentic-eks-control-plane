@@ -224,8 +224,8 @@ else
 fi
 
 ready_nodes=$(kubectl get nodes -o json | jq '[.items[] | select(.status.conditions[]? | select(.type=="Ready" and .status=="True"))] | length')
-[[ "$ready_nodes" -ge 1 ]] && pass "at least one Ready node ($ready_nodes)" \
-                           || fail "no Ready nodes"
+[[ "$ready_nodes" -ge 2 ]] && pass "at least 2 Ready nodes ($ready_nodes)" \
+                           || fail "fewer than 2 Ready nodes ($ready_nodes)"
 
 # ---------------------------------------------------------------------------
 printf '\n'

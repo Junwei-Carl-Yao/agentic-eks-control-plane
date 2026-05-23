@@ -30,6 +30,10 @@ export function createChatHandler(
       return;
     }
     const { transcript, message } = parsed.value;
+    deps.logger.info('agent.chat_start', {
+      messagePreview: message.slice(0, 60),
+      transcriptLen: transcript.length,
+    });
 
     response.setHeader('Content-Type', 'text/event-stream');
     response.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -77,7 +81,8 @@ export function createChatHandler(
     } catch (caught) {
       agentSettled = true;
       const reason = caught instanceof Error ? caught.message : String(caught);
-      deps.logger.error('agent.stream_error', { reason });
+      const stack = caught instanceof Error ? caught.stack : undefined;
+      deps.logger.error('agent.stream_error', { reason, stack });
       try {
         send({ type: 'error', message: reason });
       } catch {
@@ -113,6 +118,10 @@ async function runAgentStream(args: RunArgs): Promise<void> {
   const emittedText = new Set<string>();
 
   for await (const event of stream) {
+    logger.debug('agent.sdk_event', {
+      eventType: event.type,
+      subtype: (event as { subtype?: string }).subtype,
+    });
     if (event.type === 'assistant') {
       const blocks = event.message?.content ?? [];
       for (const block of blocks) {

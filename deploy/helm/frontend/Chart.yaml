@@ -1,1 +1,6 @@
-# Helm chart metadata for the frontend.
+apiVersion: v2
+name: frontend
+description: Static SPA dashboard for the Agentic EKS Control Plane, served via nginx.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

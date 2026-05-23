@@ -27,3 +27,15 @@ variable "state_bucket_name" {
   description = "S3 bucket holding Terraform remote state. The IRSA role gets read-only access to it so the backend can inspect state."
   type        = string
 }
+
+variable "lbc_namespace" {
+  description = "Namespace the AWS Load Balancer Controller runs in. Pinned in the LBC IRSA sub condition."
+  type        = string
+  default     = "kube-system"
+}
+
+variable "lbc_service_account" {
+  description = "ServiceAccount the AWS Load Balancer Controller runs as. Pinned in the LBC IRSA sub condition."
+  type        = string
+  default     = "aws-load-balancer-controller"
+}

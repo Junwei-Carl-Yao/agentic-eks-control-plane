@@ -1,6 +1,6 @@
 param(
     [string]$ClusterName = "eks-ctrl",
-    [string]$Namespace = "api-smoke",
+    [string]$Namespace = "control-plane",
     [int]$BackendPort = 8000,
     [int]$AgentPort = 8081,
     [int]$FrontendPort = 5173,

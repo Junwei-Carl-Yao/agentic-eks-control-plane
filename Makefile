@@ -16,6 +16,8 @@ HELM_DIR        := deploy/helm
 BOOTSTRAP       := scripts/bootstrap.sh
 ASSERT_SCRIPT   := scripts/infra_assertions.sh
 TEARDOWN_SCRIPT := scripts/teardown_verify.sh
+DEPLOY_SCRIPT   := scripts/deploy.sh
+DEPLOY_VERIFY   := scripts/deploy_verify.sh
 
 TF              := terraform
 TF_ENV          ?= dev
@@ -50,8 +52,8 @@ endif
         test test-backend test-frontend \
         lint lint-backend lint-frontend lint-agent lint-terraform \
         format format-backend format-frontend format-agent format-terraform \
-        backend frontend \
-        deploy \
+        backend agent frontend \
+        deploy deploy-verify \
         drift apply-verify teardown-verify \
         clean
 
@@ -67,8 +69,10 @@ help:
 	@echo "  lint               - run all linters (backend + frontend + terraform)"
 	@echo "  format             - auto-fix formatting across backend + frontend + terraform"
 	@echo "  backend            - build and push the backend container image"
+	@echo "  agent              - build and push the agent container image"
 	@echo "  frontend           - build and push the frontend container image"
-	@echo "  deploy             - helm upgrade --install backend + frontend charts"
+	@echo "  deploy             - install LBC + backend + agent + frontend + ALB Ingress"
+	@echo "  deploy-verify      - assert Phase 6 exit criteria against the live cluster"
 	@echo "  drift              - run terraform plan -detailed-exitcode for drift"
 	@echo "  apply-verify       - assert deployed infra matches spec (run after apply)"
 	@echo "  teardown-verify    - scan AWS for orphans after destroy"
@@ -140,13 +144,24 @@ format-terraform:
 	cd $(INFRA_DIR) && $(TF) fmt -recursive
 
 backend:
-	@echo "[placeholder] backend image build + push ($(IMAGE_REGISTRY)/eks-control-plane-backend:$(IMAGE_TAG))"
+	docker build -t $(IMAGE_REGISTRY)/eks-control-plane-backend:$(IMAGE_TAG) $(BACKEND_DIR)
+	docker push $(IMAGE_REGISTRY)/eks-control-plane-backend:$(IMAGE_TAG)
+
+agent:
+	docker build -t $(IMAGE_REGISTRY)/eks-control-plane-agent:$(IMAGE_TAG) $(AGENT_DIR)
+	docker push $(IMAGE_REGISTRY)/eks-control-plane-agent:$(IMAGE_TAG)
 
 frontend:
-	@echo "[placeholder] frontend image build + push ($(IMAGE_REGISTRY)/eks-control-plane-frontend:$(IMAGE_TAG))"
+	docker build -t $(IMAGE_REGISTRY)/eks-control-plane-frontend:$(IMAGE_TAG) $(FRONTEND_DIR)
+	docker push $(IMAGE_REGISTRY)/eks-control-plane-frontend:$(IMAGE_TAG)
 
+deploy: export IMAGE_REGISTRY := $(IMAGE_REGISTRY)
+deploy: export IMAGE_TAG := $(IMAGE_TAG)
 deploy:
-	@echo "[placeholder] helm upgrade --install backend + frontend charts"
+	@$(BASH) "$(DEPLOY_SCRIPT)"
+
+deploy-verify:
+	@$(BASH) "$(DEPLOY_VERIFY)"
 
 drift:
 	@echo "[placeholder] drift detection (terraform plan -detailed-exitcode -json)"

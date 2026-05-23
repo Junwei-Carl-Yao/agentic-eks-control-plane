@@ -56,11 +56,11 @@ describe('ZoneMap — pod grouping by deployment (spec: chat1.md)', () => {
       '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': (params) => {
-        if (params?.namespace === 'api-smoke') {
+        if (params?.namespace === 'control-plane') {
           return [
             {
               name: 'web',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               replicas: 2,
               availableReplicas: 2,
               updatedReplicas: 2,
@@ -68,7 +68,7 @@ describe('ZoneMap — pod grouping by deployment (spec: chat1.md)', () => {
             },
             {
               name: 'cache',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               replicas: 1,
               availableReplicas: 1,
               updatedReplicas: 1,
@@ -79,25 +79,25 @@ describe('ZoneMap — pod grouping by deployment (spec: chat1.md)', () => {
         return [];
       },
       '/api/cluster/pods': (params) => {
-        if (params?.namespace === 'api-smoke') {
+        if (params?.namespace === 'control-plane') {
           return [
             {
               name: 'web-aaaaaaa',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               phase: 'Running',
               labels: { app: 'web' },
               nodeName: 'ip-10-0-1-14',
             },
             {
               name: 'web-bbbbbbb',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               phase: 'Running',
               labels: { app: 'web' },
               nodeName: 'ip-10-0-1-14',
             },
             {
               name: 'cache-ccccccc',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               phase: 'Running',
               labels: { app: 'cache' },
               nodeName: 'ip-10-0-1-14',
@@ -135,25 +135,25 @@ describe('ZoneMap — pod grouping by deployment (spec: chat1.md)', () => {
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': () => [],
       '/api/cluster/pods': (params) => {
-        if (params?.namespace === 'api-smoke') {
+        if (params?.namespace === 'control-plane') {
           return [
             {
               name: 'worker-crash',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               phase: 'CrashLoopBackOff',
               labels: { app: 'worker' },
               nodeName: 'ip-10-0-1-14',
             },
             {
               name: 'web-pending',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               phase: 'Pending',
               labels: { app: 'web' },
               nodeName: 'ip-10-0-1-14',
             },
             {
               name: 'web-ok',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               phase: 'Running',
               labels: { app: 'web' },
               nodeName: 'ip-10-0-1-14',
@@ -194,11 +194,11 @@ describe('ZoneMap — cross-panel interactions (spec: chat1.md)', () => {
       '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': (params) => {
-        if (params?.namespace === 'api-smoke') {
+        if (params?.namespace === 'control-plane') {
           return [
             {
               name: 'web',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               replicas: 1,
               availableReplicas: 1,
               updatedReplicas: 1,
@@ -206,7 +206,7 @@ describe('ZoneMap — cross-panel interactions (spec: chat1.md)', () => {
             },
             {
               name: 'cache',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               replicas: 1,
               availableReplicas: 1,
               updatedReplicas: 1,
@@ -217,18 +217,18 @@ describe('ZoneMap — cross-panel interactions (spec: chat1.md)', () => {
         return [];
       },
       '/api/cluster/pods': (params) => {
-        if (params?.namespace === 'api-smoke') {
+        if (params?.namespace === 'control-plane') {
           return [
             {
               name: 'web-aaa',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               phase: 'Running',
               labels: { app: 'web' },
               nodeName: 'ip-10-0-1-14',
             },
             {
               name: 'cache-bbb',
-              namespace: 'api-smoke',
+              namespace: 'control-plane',
               phase: 'Running',
               labels: { app: 'cache' },
               nodeName: 'ip-10-0-1-14',
@@ -279,11 +279,11 @@ describe('ZoneMap — cross-panel interactions (spec: chat1.md)', () => {
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': () => [],
       '/api/cluster/pods': (params) =>
-        params?.namespace === 'api-smoke'
+        params?.namespace === 'control-plane'
           ? [
               {
                 name: 'web-aaa',
-                namespace: 'api-smoke',
+                namespace: 'control-plane',
                 phase: 'Running',
                 labels: { app: 'web' },
                 nodeName: 'ip-10-0-1-14',

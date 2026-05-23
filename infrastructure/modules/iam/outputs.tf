@@ -27,3 +27,13 @@ output "irsa_backend_role_name" {
   description = "Name of the backend IRSA role."
   value       = aws_iam_role.irsa_backend.name
 }
+
+output "irsa_lbc_role_arn" {
+  description = "ARN of the IRSA role assumable by the AWS Load Balancer Controller ServiceAccount."
+  value       = aws_iam_role.lbc.arn
+}
+
+output "irsa_lbc_role_name" {
+  description = "Name of the IRSA role assumable by the AWS Load Balancer Controller ServiceAccount."
+  value       = aws_iam_role.lbc.name
+}

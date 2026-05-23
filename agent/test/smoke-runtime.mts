@@ -29,7 +29,7 @@ try {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       transcript: [],
-      message: "Scale web to 2 replicas in api-smoke",
+      message: "Scale web to 2 replicas in control-plane",
     }),
   });
   process.stdout.write(`HTTP status: ${response.status}\n`);

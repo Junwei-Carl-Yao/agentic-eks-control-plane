@@ -147,49 +147,52 @@ describe('tool -> backend route mapping', () => {
 
   it('list_deployments -> GET /api/cluster/deployments?namespace=...', async () => {
     setupOk([]);
-    await getTool('list_deployments').handler({ namespace: 'api-smoke' }, {});
+    await getTool('list_deployments').handler({ namespace: 'control-plane' }, {});
     const call = mock.recorded[0]!;
     expect(call.method).toBe('GET');
     const parsed = parseUrl(call.url);
     expect(parsed.path).toBe('/api/cluster/deployments');
-    expect(parsed.query).toEqual({ namespace: 'api-smoke' });
+    expect(parsed.query).toEqual({ namespace: 'control-plane' });
   });
 
   it('get_deployment -> GET /api/cluster/deployments/{name}?namespace=...', async () => {
     setupOk({});
-    await getTool('get_deployment').handler({ namespace: 'api-smoke', name: 'web' }, {});
+    await getTool('get_deployment').handler({ namespace: 'control-plane', name: 'web' }, {});
     const call = mock.recorded[0]!;
     expect(call.method).toBe('GET');
     const parsed = parseUrl(call.url);
     expect(parsed.path).toBe('/api/cluster/deployments/web');
-    expect(parsed.query).toEqual({ namespace: 'api-smoke' });
+    expect(parsed.query).toEqual({ namespace: 'control-plane' });
   });
 
   it('list_pods -> GET /api/cluster/pods with optional labelSelector', async () => {
     setupOk([]);
-    await getTool('list_pods').handler({ namespace: 'api-smoke' }, {});
+    await getTool('list_pods').handler({ namespace: 'control-plane' }, {});
     const noSelector = parseUrl(mock.recorded[0]!.url);
     expect(noSelector.path).toBe('/api/cluster/pods');
-    expect(noSelector.query).toEqual({ namespace: 'api-smoke' });
+    expect(noSelector.query).toEqual({ namespace: 'control-plane' });
 
-    await getTool('list_pods').handler({ namespace: 'api-smoke', labelSelector: 'app=web' }, {});
+    await getTool('list_pods').handler(
+      { namespace: 'control-plane', labelSelector: 'app=web' },
+      {},
+    );
     const withSelector = parseUrl(mock.recorded[1]!.url);
     expect(withSelector.path).toBe('/api/cluster/pods');
-    expect(withSelector.query).toEqual({ namespace: 'api-smoke', labelSelector: 'app=web' });
+    expect(withSelector.query).toEqual({ namespace: 'control-plane', labelSelector: 'app=web' });
   });
 
   it('list_events -> GET /api/cluster/events?namespace=...', async () => {
     setupOk([]);
-    await getTool('list_events').handler({ namespace: 'api-smoke' }, {});
+    await getTool('list_events').handler({ namespace: 'control-plane' }, {});
     const parsed = parseUrl(mock.recorded[0]!.url);
     expect(parsed.path).toBe('/api/cluster/events');
-    expect(parsed.query).toEqual({ namespace: 'api-smoke' });
+    expect(parsed.query).toEqual({ namespace: 'control-plane' });
   });
 
   it('tail_logs -> GET /api/cluster/logs with namespace, pod, container, lines', async () => {
     setupOk({ logs: '' });
     await getTool('tail_logs').handler(
-      { namespace: 'api-smoke', pod: 'web-1', container: 'app', lines: 50 },
+      { namespace: 'control-plane', pod: 'web-1', container: 'app', lines: 50 },
       {},
     );
     const call = mock.recorded[0]!;
@@ -197,7 +200,7 @@ describe('tool -> backend route mapping', () => {
     const parsed = parseUrl(call.url);
     expect(parsed.path).toBe('/api/cluster/logs');
     expect(parsed.query).toEqual({
-      namespace: 'api-smoke',
+      namespace: 'control-plane',
       pod: 'web-1',
       container: 'app',
       lines: '50',
@@ -222,12 +225,12 @@ describe('tool -> backend route mapping', () => {
       { tool: 'list_replicasets', expectedPath: '/api/cluster/replicasets' },
     ];
     for (const entry of calls) {
-      await getTool(entry.tool).handler({ namespace: 'api-smoke' }, {});
+      await getTool(entry.tool).handler({ namespace: 'control-plane' }, {});
     }
     for (let index = 0; index < calls.length; index += 1) {
       const parsed = parseUrl(mock.recorded[index]!.url);
       expect(parsed.path).toBe(calls[index]!.expectedPath);
-      expect(parsed.query).toEqual({ namespace: 'api-smoke' });
+      expect(parsed.query).toEqual({ namespace: 'control-plane' });
     }
   });
 
@@ -265,53 +268,57 @@ describe('tool -> backend route mapping', () => {
 
   it('scale -> POST /api/operations/scale with namespace, name, replicas', async () => {
     setupOk({ status: 'ok' });
-    await getTool('scale').handler({ namespace: 'api-smoke', name: 'web', replicas: 3 }, {});
+    await getTool('scale').handler({ namespace: 'control-plane', name: 'web', replicas: 3 }, {});
     const call = mock.recorded[0]!;
     expect(call.method).toBe('POST');
     expect(parseUrl(call.url).path).toBe('/api/operations/scale');
-    expect(call.body).toEqual({ namespace: 'api-smoke', name: 'web', replicas: 3 });
+    expect(call.body).toEqual({ namespace: 'control-plane', name: 'web', replicas: 3 });
     expect(call.headers['Content-Type']).toBe('application/json');
   });
 
   it('rollout_restart -> POST /api/operations/rollout-restart', async () => {
     setupOk({ status: 'ok' });
-    await getTool('rollout_restart').handler({ namespace: 'api-smoke', name: 'api' }, {});
+    await getTool('rollout_restart').handler({ namespace: 'control-plane', name: 'api' }, {});
     const call = mock.recorded[0]!;
     expect(call.method).toBe('POST');
     expect(parseUrl(call.url).path).toBe('/api/operations/rollout-restart');
-    expect(call.body).toEqual({ namespace: 'api-smoke', name: 'api' });
+    expect(call.body).toEqual({ namespace: 'control-plane', name: 'api' });
   });
 
   it('pause_rollout -> POST /api/operations/pause-rollout', async () => {
     setupOk({ status: 'ok' });
-    await getTool('pause_rollout').handler({ namespace: 'api-smoke', name: 'api' }, {});
+    await getTool('pause_rollout').handler({ namespace: 'control-plane', name: 'api' }, {});
     expect(parseUrl(mock.recorded[0]!.url).path).toBe('/api/operations/pause-rollout');
-    expect(mock.recorded[0]!.body).toEqual({ namespace: 'api-smoke', name: 'api' });
+    expect(mock.recorded[0]!.body).toEqual({ namespace: 'control-plane', name: 'api' });
   });
 
   it('resume_rollout -> POST /api/operations/resume-rollout', async () => {
     setupOk({ status: 'ok' });
-    await getTool('resume_rollout').handler({ namespace: 'api-smoke', name: 'api' }, {});
+    await getTool('resume_rollout').handler({ namespace: 'control-plane', name: 'api' }, {});
     expect(parseUrl(mock.recorded[0]!.url).path).toBe('/api/operations/resume-rollout');
-    expect(mock.recorded[0]!.body).toEqual({ namespace: 'api-smoke', name: 'api' });
+    expect(mock.recorded[0]!.body).toEqual({ namespace: 'control-plane', name: 'api' });
   });
 
   it('rollback sends revision: 0 (not omitted) when previous revision is requested', async () => {
     setupOk({ status: 'ok' });
-    await getTool('rollback').handler({ namespace: 'api-smoke', name: 'api', revision: 0 }, {});
+    await getTool('rollback').handler({ namespace: 'control-plane', name: 'api', revision: 0 }, {});
     const call = mock.recorded[0]!;
     expect(call.method).toBe('POST');
     expect(parseUrl(call.url).path).toBe('/api/operations/rollback');
     // The backend models say Revision >= 0 with 0 meaning previous; the body
     // MUST contain revision: 0 verbatim, never omit it.
-    expect(call.body).toEqual({ namespace: 'api-smoke', name: 'api', revision: 0 });
+    expect(call.body).toEqual({ namespace: 'control-plane', name: 'api', revision: 0 });
     expect((call.body as Record<string, unknown>).revision).toBe(0);
   });
 
   it('rollback accepts positive revision values', async () => {
     setupOk({ status: 'ok' });
-    await getTool('rollback').handler({ namespace: 'api-smoke', name: 'api', revision: 7 }, {});
-    expect(mock.recorded[0]!.body).toEqual({ namespace: 'api-smoke', name: 'api', revision: 7 });
+    await getTool('rollback').handler({ namespace: 'control-plane', name: 'api', revision: 7 }, {});
+    expect(mock.recorded[0]!.body).toEqual({
+      namespace: 'control-plane',
+      name: 'api',
+      revision: 7,
+    });
   });
 
   it('rollback rejects negative revisions at the input schema level', () => {

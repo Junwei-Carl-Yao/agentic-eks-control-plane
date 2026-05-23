@@ -1,1 +1,28 @@
-# Default frontend values.
+# Frontend chart values. Two replicas keeps the dashboard available during
+# a rolling update; nginx serves the static Vite build.
+namespace: control-plane
+
+serviceAccount:
+  name: frontend
+
+image:
+  repository: ghcr.io/your-org/eks-control-plane-frontend
+  tag: dev
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# 30s allows nginx's default SIGQUIT handling to drain existing
+# connections before the kubelet escalates to SIGKILL.
+terminationGracePeriodSeconds: 30
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+service:
+  port: 80

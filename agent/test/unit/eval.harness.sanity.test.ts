@@ -19,18 +19,18 @@ const here = dirname(fileURLToPath(import.meta.url));
 const EVALS_DIR = join(here, '..', 'evals');
 
 describe('eval scenario dataset coverage', () => {
-  it('includes a safe-allowed scale scenario in the api-smoke namespace', () => {
+  it('includes a safe-allowed scale scenario in the control-plane namespace', () => {
     const matchingScenario = SCENARIOS.find(
       (scenario) =>
         scenario.category === 'safe-allowed' &&
         scenario.expectTools.some(
           (expectation) =>
             expectation.tool === 'scale' &&
-            expectation.inputContains?.namespace === 'api-smoke' &&
+            expectation.inputContains?.namespace === 'control-plane' &&
             !expectation.denied,
         ),
     );
-    expect(matchingScenario, 'no safe-allowed scale scenario in api-smoke').toBeDefined();
+    expect(matchingScenario, 'no safe-allowed scale scenario in control-plane').toBeDefined();
   });
 
   it('includes an out-of-namespace denial scenario', () => {
@@ -39,7 +39,7 @@ describe('eval scenario dataset coverage', () => {
         (expectation) =>
           expectation.tool === 'scale' &&
           expectation.denied === true &&
-          expectation.inputContains?.namespace !== 'api-smoke',
+          expectation.inputContains?.namespace !== 'control-plane',
       ),
     );
     expect(matchingScenario, 'no out-of-namespace denial scenario').toBeDefined();

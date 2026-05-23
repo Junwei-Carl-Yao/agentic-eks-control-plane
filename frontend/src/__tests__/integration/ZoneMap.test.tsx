@@ -6,7 +6,7 @@ import { renderWithClient } from '../testUtils';
 import { denialError, genericError, mockRouter } from '../mockRouter';
 
 // Spec §3.1 + §5.3: the cluster panel polls the read routes on the allowlisted
-// namespace (api-smoke). A 403 from any single route must surface its
+// namespace (control-plane). A 403 from any single route must surface its
 // guardrail reason without sinking the rest of the view.
 
 beforeEach(() => {
@@ -61,7 +61,7 @@ describe('ZoneMap', () => {
         )
         .map((call) => call.params?.namespace),
     );
-    expect(namespacesQueried).toEqual(new Set(['api-smoke']));
+    expect(namespacesQueried).toEqual(new Set(['control-plane']));
   });
 
   it('renders the cluster topbar with the discovered node count', async () => {
@@ -216,11 +216,11 @@ describe('ZoneMap', () => {
       '/api/cluster/health': () => ({ healthy: true }),
       '/api/cluster/nodes': () => [{ name: 'ip-10-0-1-14' }],
       '/api/cluster/deployments': (params) =>
-        params?.namespace === 'api-smoke'
+        params?.namespace === 'control-plane'
           ? [
               {
                 name: 'web',
-                namespace: 'api-smoke',
+                namespace: 'control-plane',
                 replicas: 2,
                 availableReplicas: 2,
                 updatedReplicas: 2,
@@ -229,7 +229,7 @@ describe('ZoneMap', () => {
             ]
           : [],
       '/api/cluster/pods': (params) =>
-        params?.namespace === 'api-smoke'
+        params?.namespace === 'control-plane'
           ? denialError('namespace foo is not on the allowed list')
           : [],
       '/api/cluster/events': () => [],

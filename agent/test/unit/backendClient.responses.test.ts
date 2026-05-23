@@ -18,11 +18,11 @@ describe('BackendClient response handling', () => {
   });
 
   it('returns 200 JSON body verbatim', async () => {
-    const body = [{ name: 'web', namespace: 'api-smoke', replicas: 2, readyReplicas: 2 }];
+    const body = [{ name: 'web', namespace: 'control-plane', replicas: 2, readyReplicas: 2 }];
     mock = installMockFetch({ status: 200, body });
     const client = new BackendClient('http://backend.test');
 
-    const result = await client.listDeployments('api-smoke');
+    const result = await client.listDeployments('control-plane');
     expect(result).toEqual(body);
     expect(isFailure(result)).toBe(false);
   });
@@ -30,12 +30,12 @@ describe('BackendClient response handling', () => {
   it('returns 200 JSON for mutation calls verbatim', async () => {
     const body = {
       status: 'ok',
-      decision: { allow: true, action: 'scale', subject: 'api-smoke/web' },
+      decision: { allow: true, action: 'scale', subject: 'control-plane/web' },
     };
     mock = installMockFetch({ status: 200, body });
     const client = new BackendClient('http://backend.test');
 
-    const result = await client.scale('api-smoke', 'web', 3);
+    const result = await client.scale('control-plane', 'web', 3);
     expect(result).toEqual(body);
   });
 
@@ -87,7 +87,7 @@ describe('BackendClient response handling', () => {
     let threw = false;
     let result: unknown;
     try {
-      result = await client.listPods('api-smoke');
+      result = await client.listPods('control-plane');
     } catch {
       threw = true;
     }
@@ -112,49 +112,49 @@ describe('BackendClient response handling', () => {
     const expectations: Expectation[] = [
       {
         label: 'listDeployments',
-        invoke: () => client.listDeployments('api-smoke'),
+        invoke: () => client.listDeployments('control-plane'),
         expectedPathPrefix: '/api/cluster/deployments',
         expectedMethod: 'GET',
       },
       {
         label: 'getDeployment',
-        invoke: () => client.getDeployment('api-smoke', 'web'),
+        invoke: () => client.getDeployment('control-plane', 'web'),
         expectedPathPrefix: '/api/cluster/deployments/web',
         expectedMethod: 'GET',
       },
       {
         label: 'listPods',
-        invoke: () => client.listPods('api-smoke'),
+        invoke: () => client.listPods('control-plane'),
         expectedPathPrefix: '/api/cluster/pods',
         expectedMethod: 'GET',
       },
       {
         label: 'listEvents',
-        invoke: () => client.listEvents('api-smoke'),
+        invoke: () => client.listEvents('control-plane'),
         expectedPathPrefix: '/api/cluster/events',
         expectedMethod: 'GET',
       },
       {
         label: 'tailLogs',
-        invoke: () => client.tailLogs('api-smoke', 'web-1', 'app', 25),
+        invoke: () => client.tailLogs('control-plane', 'web-1', 'app', 25),
         expectedPathPrefix: '/api/cluster/logs',
         expectedMethod: 'GET',
       },
       {
         label: 'listServices',
-        invoke: () => client.listServices('api-smoke'),
+        invoke: () => client.listServices('control-plane'),
         expectedPathPrefix: '/api/cluster/services',
         expectedMethod: 'GET',
       },
       {
         label: 'listIngresses',
-        invoke: () => client.listIngresses('api-smoke'),
+        invoke: () => client.listIngresses('control-plane'),
         expectedPathPrefix: '/api/cluster/ingresses',
         expectedMethod: 'GET',
       },
       {
         label: 'listHpas',
-        invoke: () => client.listHpas('api-smoke'),
+        invoke: () => client.listHpas('control-plane'),
         expectedPathPrefix: '/api/cluster/hpas',
         expectedMethod: 'GET',
       },
@@ -172,37 +172,37 @@ describe('BackendClient response handling', () => {
       },
       {
         label: 'listReplicaSets',
-        invoke: () => client.listReplicaSets('api-smoke'),
+        invoke: () => client.listReplicaSets('control-plane'),
         expectedPathPrefix: '/api/cluster/replicasets',
         expectedMethod: 'GET',
       },
       {
         label: 'scale',
-        invoke: () => client.scale('api-smoke', 'web', 3),
+        invoke: () => client.scale('control-plane', 'web', 3),
         expectedPathPrefix: '/api/operations/scale',
         expectedMethod: 'POST',
       },
       {
         label: 'rolloutRestart',
-        invoke: () => client.rolloutRestart('api-smoke', 'web'),
+        invoke: () => client.rolloutRestart('control-plane', 'web'),
         expectedPathPrefix: '/api/operations/rollout-restart',
         expectedMethod: 'POST',
       },
       {
         label: 'pauseRollout',
-        invoke: () => client.pauseRollout('api-smoke', 'web'),
+        invoke: () => client.pauseRollout('control-plane', 'web'),
         expectedPathPrefix: '/api/operations/pause-rollout',
         expectedMethod: 'POST',
       },
       {
         label: 'resumeRollout',
-        invoke: () => client.resumeRollout('api-smoke', 'web'),
+        invoke: () => client.resumeRollout('control-plane', 'web'),
         expectedPathPrefix: '/api/operations/resume-rollout',
         expectedMethod: 'POST',
       },
       {
         label: 'rollback',
-        invoke: () => client.rollback('api-smoke', 'web', 0),
+        invoke: () => client.rollback('control-plane', 'web', 0),
         expectedPathPrefix: '/api/operations/rollback',
         expectedMethod: 'POST',
       },

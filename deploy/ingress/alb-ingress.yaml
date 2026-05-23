@@ -1,1 +1,45 @@
-# ALB Ingress manifest for routing external traffic to the dashboard + API.
+# Single public entrypoint for the control plane. The AWS Load Balancer
+# Controller (Phase 6.4) reconciles this Ingress into an internet-facing
+# ALB; without that controller installed and Available, the Ingress sits
+# unreconciled and the routes 404.
+#
+# Path ordering is "most specific first": /api/agent/* must precede /api/*
+# so agent traffic doesn't get absorbed by the backend route.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: eks-control-plane
+  namespace: control-plane
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # ip target-type lets the ALB reach pod IPs directly (VPC CNI assigns
+    # routable ENIs) instead of going through node ports.
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /api/agent
+            pathType: Prefix
+            backend:
+              service:
+                name: agent
+                port:
+                  number: 8081
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
