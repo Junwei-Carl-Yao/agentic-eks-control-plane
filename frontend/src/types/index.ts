@@ -1,6 +1,11 @@
 // Mirrors backend Go DTOs in backend/internal/kubernetes/types.go. Field names
 // must stay camelCase to match the json tags exactly.
 
+export interface DeploymentContainer {
+  name: string;
+  image: string;
+}
+
 export interface Deployment {
   name: string;
   namespace: string;
@@ -8,6 +13,7 @@ export interface Deployment {
   availableReplicas: number;
   updatedReplicas: number;
   paused: boolean;
+  containers?: DeploymentContainer[];
 }
 
 export interface Pod {

@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"eks-control-plane/backend/internal/config"
 	"eks-control-plane/backend/internal/guardrails"
+	"eks-control-plane/backend/internal/kubernetes"
 )
 
 // Scenario: GET /api/cluster/deployments?namespace=app → 200 + JSON list.
@@ -46,6 +48,113 @@ func TestGetDeploymentDetail_Returns200(t *testing.T) {
 	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/api/cluster/deployments/web?namespace=app", nil))
 	if responseRecorder.Code != 200 {
 		t.Fatalf("status = %d, want 200", responseRecorder.Code)
+	}
+}
+
+// Scenario: GET /api/cluster/deployments?namespace=app forwards Containers
+// from the reader to the JSON body. The agent runtime and the frontend pod-
+// detail panel both depend on the wire-format `containers` array of
+// {name,image} objects being present and in source order.
+func TestGetDeployments_WireFormatIncludesContainers(t *testing.T) {
+	handler := newTestHandlerWithReads(stubReads{deployments: []Deployment{{
+		Name:      "web",
+		Namespace: "app",
+		Replicas:  2,
+		Containers: []kubernetes.DeploymentContainer{
+			{Name: "nginx", Image: "nginx:1.27"},
+			{Name: "istio-proxy", Image: "istio/proxyv2:1.20.0"},
+		},
+	}}})
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet,
+		"/api/cluster/deployments?namespace=app", nil))
+	if responseRecorder.Code != 200 {
+		t.Fatalf("status = %d, want 200; body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	// Decode as generic JSON to assert on the wire shape (not on the Go alias).
+	var deploymentList []map[string]any
+	if err := json.NewDecoder(responseRecorder.Body).Decode(&deploymentList); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(deploymentList) != 1 {
+		t.Fatalf("len = %d, want 1", len(deploymentList))
+	}
+	containersAny, ok := deploymentList[0]["containers"]
+	if !ok {
+		t.Fatalf("body missing `containers` key: %+v", deploymentList[0])
+	}
+	containers, ok := containersAny.([]any)
+	if !ok {
+		t.Fatalf("containers not a JSON array: %T %v", containersAny, containersAny)
+	}
+	if len(containers) != 2 {
+		t.Fatalf("len(containers) = %d, want 2", len(containers))
+	}
+	first, _ := containers[0].(map[string]any)
+	second, _ := containers[1].(map[string]any)
+	if first["name"] != "nginx" || first["image"] != "nginx:1.27" {
+		t.Errorf("containers[0] = %+v, want {name:nginx, image:nginx:1.27}", first)
+	}
+	if second["name"] != "istio-proxy" || second["image"] != "istio/proxyv2:1.20.0" {
+		t.Errorf("containers[1] = %+v, want {name:istio-proxy, image:istio/proxyv2:1.20.0}", second)
+	}
+}
+
+// Scenario: GET /api/cluster/deployments/{name} returns the same `containers`
+// JSON array as the list route. Both routes serialize the same DTO; the test
+// is the wire-level guard that they keep doing so.
+func TestGetDeploymentDetail_WireFormatIncludesContainers(t *testing.T) {
+	handler := newTestHandlerWithReads(stubReads{deployment: &Deployment{
+		Name:      "web",
+		Namespace: "app",
+		Replicas:  1,
+		Containers: []kubernetes.DeploymentContainer{
+			{Name: "nginx", Image: "nginx:1.27"},
+		},
+	}})
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet,
+		"/api/cluster/deployments/web?namespace=app", nil))
+	if responseRecorder.Code != 200 {
+		t.Fatalf("status = %d; body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(responseRecorder.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	containersAny, ok := body["containers"]
+	if !ok {
+		t.Fatalf("body missing `containers` key: %+v", body)
+	}
+	containers, _ := containersAny.([]any)
+	if len(containers) != 1 {
+		t.Fatalf("len = %d, want 1", len(containers))
+	}
+	first, _ := containers[0].(map[string]any)
+	if first["name"] != "nginx" || first["image"] != "nginx:1.27" {
+		t.Errorf("containers[0] = %+v, want {name:nginx, image:nginx:1.27}", first)
+	}
+}
+
+// Scenario: a Deployment with no containers serializes WITHOUT the `containers`
+// JSON key. The DTO uses `omitempty`; the route must not introduce the empty
+// array on the wire. Asserts the raw response body to be precise about the
+// wire format rather than relying on decode behavior.
+func TestGetDeployments_WireFormatOmitsContainersWhenEmpty(t *testing.T) {
+	handler := newTestHandlerWithReads(stubReads{deployments: []Deployment{{
+		Name:      "web",
+		Namespace: "app",
+		Replicas:  1,
+	}}})
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet,
+		"/api/cluster/deployments?namespace=app", nil))
+	if responseRecorder.Code != 200 {
+		t.Fatalf("status = %d", responseRecorder.Code)
+	}
+	body := responseRecorder.Body.String()
+	if strings.Contains(body, "\"containers\"") {
+		t.Errorf("wire body contains `containers` key for empty case:\n%s", body)
 	}
 }
 

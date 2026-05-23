@@ -4,6 +4,8 @@
 // bounded regardless of who proposes the action (human or LLM).
 package guardrails
 
+import "slices"
+
 // MaxReplicas is the hard upper bound on Scale.Replicas. Hardcoded at compile
 // time so no caller (route, agent, future internal use) can widen it without
 // rebuilding the binary.
@@ -21,6 +23,12 @@ const MinReplicas = 2
 // package-level mutable state that participates in any decision.
 type Policy struct {
 	AllowedNamespaces []string
+	// RollbackImageFloors maps a Deployment name to the minimum acceptable
+	// image version. A rollback targeting one of these Deployments is denied
+	// unless the resolved target image carries a `v<int>` tag at or above the
+	// floor — preventing a rollback from undoing a security or compatibility
+	// fix baked into a known-good release.
+	RollbackImageFloors map[string]int
 }
 
 // DefaultPolicy returns the production policy. Values are fixed at compile
@@ -29,16 +37,19 @@ type Policy struct {
 func DefaultPolicy() Policy {
 	return Policy{
 		AllowedNamespaces: []string{"control-plane"},
+		RollbackImageFloors: map[string]int{
+			"agent":    6,
+			"backend":  4,
+			"frontend": 4,
+		},
 	}
 }
 
 // namespaceAllowed encodes the §3.1 contract: namespaces are permitted only
 // when explicitly listed.
 func (policy Policy) namespaceAllowed(namespace string) (bool, string) {
-	for _, allowed := range policy.AllowedNamespaces {
-		if allowed == namespace {
-			return true, ""
-		}
+	if slices.Contains(policy.AllowedNamespaces, namespace) {
+		return true, ""
 	}
 	return false, "namespace " + namespace + " is not on the allowed list"
 }

@@ -99,7 +99,7 @@ func rollbackHandler(ops Operations, enforcer *guardrails.Enforcer) http.Handler
 		if !decodeAndValidate(writer, request, &body) {
 			return
 		}
-		decision := enforcer.Rollback(body)
+		decision := enforcer.Rollback(request.Context(), body, ops)
 		if !writeIfDenied(writer, decision) {
 			return
 		}

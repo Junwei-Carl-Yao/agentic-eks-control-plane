@@ -44,13 +44,13 @@ export function buildKubernetesMcpServer(client: BackendClient) {
       ),
       tool(
         'list_deployments',
-        'List Deployments in a namespace.',
+        'List Deployments in a namespace. Each Deployment includes a `containers` array of `{name, image}` for its main containers.',
         { namespace: z.string().min(1).describe('Kubernetes namespace') },
         async (args) => asToolResult(await client.listDeployments(args.namespace)),
       ),
       tool(
         'get_deployment',
-        'Fetch a single Deployment by name and namespace.',
+        'Fetch a single Deployment by name and namespace. The result includes a `containers` array of `{name, image}` for its main containers.',
         {
           namespace: z.string().min(1).describe('Kubernetes namespace'),
           name: z.string().min(1).describe('Deployment name'),

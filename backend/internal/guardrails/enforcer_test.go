@@ -2,6 +2,7 @@ package guardrails
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"strings"
@@ -110,7 +111,7 @@ func TestEnforcer_RolloutRestartAllow(t *testing.T) {
 // "previous"; the enforcer accepts both 0 and positive revisions.
 func TestEnforcer_RollbackAllow(t *testing.T) {
 	enforcer, _ := newEnforcer(t)
-	decision := enforcer.Rollback(models.RollbackRequest{Namespace: allowedNamespace, Name: "web", Revision: 2})
+	decision := enforcer.Rollback(context.Background(), models.RollbackRequest{Namespace: allowedNamespace, Name: "web", Revision: 2}, nil)
 	if !decision.Allow {
 		t.Errorf("decision = %+v", decision)
 	}

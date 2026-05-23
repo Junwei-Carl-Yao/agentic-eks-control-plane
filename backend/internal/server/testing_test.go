@@ -120,8 +120,11 @@ type stubOps struct {
 	lastRestart          string
 	paused               bool
 	resumed              bool
+	rollbackCalls        int
 	lastRollbackRevision int64
 	notFound             bool
+	resolveImage         string
+	resolveErr           error
 }
 
 func (stub *stubOps) maybeNotFound(namespace, name string) error {
@@ -168,8 +171,16 @@ func (stub *stubOps) Rollback(_ context.Context, namespace, name string, revisio
 	if err := stub.maybeNotFound(namespace, name); err != nil {
 		return err
 	}
+	stub.rollbackCalls++
 	stub.lastRollbackRevision = revision
 	return nil
+}
+
+func (stub *stubOps) ResolveRollbackImage(_ context.Context, _, _ string, _ int64) (string, error) {
+	if stub.resolveErr != nil {
+		return "", stub.resolveErr
+	}
+	return stub.resolveImage, nil
 }
 
 // --- handler builders ---

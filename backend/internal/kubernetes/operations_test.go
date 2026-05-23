@@ -7,6 +7,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // Scenario: Scale(ns, name, 5) → spec.replicas becomes 5.
@@ -122,6 +124,125 @@ func TestRollback_IgnoresReplicaSetsFromOtherDeployments(t *testing.T) {
 func TestOperations_NotFoundIsTyped(t *testing.T) {
 	kubeClient := newFakeClient(t)
 	if err := kubeClient.Scale(context.Background(), "app", "ghost", 1); !IsNotFound(err) {
+		t.Errorf("err = %v, want IsNotFound", err)
+	}
+}
+
+// Scenario: ResolveRollbackImage picks the container whose Name matches the
+// Deployment name, not the first container in declaration order. With
+// `istio-proxy` declared before `app` in a Deployment named `app`, the
+// resolver must return `app`'s image — picking the first would let a sidecar
+// image leak into the floor check and bypass the guardrail.
+func TestResolveRollbackImage_PicksMatchingNameContainer(t *testing.T) {
+	previousContainers := []corev1.Container{
+		{Name: "istio-proxy", Image: "istio/proxyv2:v9"},
+		{Name: "app", Image: "repo/app:v4"},
+	}
+	currentContainers := []corev1.Container{
+		{Name: "istio-proxy", Image: "istio/proxyv2:v9"},
+		{Name: "app", Image: "repo/app:v6"},
+	}
+	kubeClient := newFakeClient(t, withRevisionHistoryAndContainers("app", "app", []revisionContainers{
+		{revision: 1, containers: previousContainers},
+		{revision: 2, containers: currentContainers},
+	}))
+	// revision == 0 chooses the predecessor (revision 1 here), whose `app`
+	// container is `repo/app:v4`.
+	image, err := kubeClient.ResolveRollbackImage(context.Background(), "app", "app", 0)
+	if err != nil {
+		t.Fatalf("ResolveRollbackImage: %v", err)
+	}
+	if image != "repo/app:v4" {
+		t.Errorf("image = %q, want %q (matching-name container, not the first)", image, "repo/app:v4")
+	}
+}
+
+// Scenario: no container in the target ReplicaSet has the Deployment's name →
+// fall back to the first container. Required for legacy Deployments where the
+// container name does not echo the Deployment.
+func TestResolveRollbackImage_FallbackToFirstContainer(t *testing.T) {
+	previousContainers := []corev1.Container{
+		{Name: "primary", Image: "repo/primary:v3"},
+		{Name: "sidecar", Image: "repo/sidecar:v9"},
+	}
+	currentContainers := []corev1.Container{
+		{Name: "primary", Image: "repo/primary:v5"},
+		{Name: "sidecar", Image: "repo/sidecar:v9"},
+	}
+	// Deployment name "app" does not match any container name.
+	kubeClient := newFakeClient(t, withRevisionHistoryAndContainers("app", "app", []revisionContainers{
+		{revision: 1, containers: previousContainers},
+		{revision: 2, containers: currentContainers},
+	}))
+	image, err := kubeClient.ResolveRollbackImage(context.Background(), "app", "app", 0)
+	if err != nil {
+		t.Fatalf("ResolveRollbackImage: %v", err)
+	}
+	if image != "repo/primary:v3" {
+		t.Errorf("image = %q, want %q (first container, no name match)", image, "repo/primary:v3")
+	}
+}
+
+// Scenario: the target ReplicaSet has zero containers → error. The enforcer
+// surfaces this as the "could not resolve target image" deny, so the route
+// returns 403 instead of attempting a rollback against a broken revision.
+func TestResolveRollbackImage_ZeroContainersReturnsError(t *testing.T) {
+	currentContainers := []corev1.Container{{Name: "app", Image: "repo/app:v6"}}
+	kubeClient := newFakeClient(t, withRevisionHistoryAndContainers("app", "app", []revisionContainers{
+		{revision: 1, containers: nil},
+		{revision: 2, containers: currentContainers},
+	}))
+	if _, err := kubeClient.ResolveRollbackImage(context.Background(), "app", "app", 1); err == nil {
+		t.Fatal("ResolveRollbackImage: expected error for zero-container revision, got nil")
+	}
+}
+
+// Scenario: revision == 0 chooses the predecessor (parallel to Rollback's
+// "previous" semantics). With current=3, the prior is 2, so the v2 image must
+// come back — not the v3 image and not v1.
+func TestResolveRollbackImage_RevisionZeroChoosesPredecessor(t *testing.T) {
+	kubeClient := newFakeClient(t, withRevisionHistoryAndContainers("app", "app", []revisionContainers{
+		{revision: 1, containers: []corev1.Container{{Name: "app", Image: "repo/app:v1"}}},
+		{revision: 2, containers: []corev1.Container{{Name: "app", Image: "repo/app:v2"}}},
+		{revision: 3, containers: []corev1.Container{{Name: "app", Image: "repo/app:v3"}}},
+	}))
+	image, err := kubeClient.ResolveRollbackImage(context.Background(), "app", "app", 0)
+	if err != nil {
+		t.Fatalf("ResolveRollbackImage: %v", err)
+	}
+	if image != "repo/app:v2" {
+		t.Errorf("image = %q, want %q (predecessor of current revision 3)", image, "repo/app:v2")
+	}
+}
+
+// Scenario: explicit revision returns that specific revision's container
+// image, not a neighbouring one. Pins the lookup by revision number.
+func TestResolveRollbackImage_ExplicitRevision(t *testing.T) {
+	kubeClient := newFakeClient(t, withRevisionHistoryAndContainers("app", "app", []revisionContainers{
+		{revision: 1, containers: []corev1.Container{{Name: "app", Image: "repo/app:v1"}}},
+		{revision: 2, containers: []corev1.Container{{Name: "app", Image: "repo/app:v2"}}},
+		{revision: 3, containers: []corev1.Container{{Name: "app", Image: "repo/app:v3"}}},
+	}))
+	image, err := kubeClient.ResolveRollbackImage(context.Background(), "app", "app", 1)
+	if err != nil {
+		t.Fatalf("ResolveRollbackImage: %v", err)
+	}
+	if image != "repo/app:v1" {
+		t.Errorf("image = %q, want %q (explicit revision 1)", image, "repo/app:v1")
+	}
+}
+
+// Scenario: Deployment does not exist → IsNotFound. The enforcer wraps the
+// underlying error in its "could not resolve target image" deny; that wrapping
+// preserves IsNotFound through errors.Is for any downstream caller still
+// classifying. We assert on IsNotFound directly to avoid coupling to wrapping.
+func TestResolveRollbackImage_NotFound(t *testing.T) {
+	kubeClient := newFakeClient(t)
+	_, err := kubeClient.ResolveRollbackImage(context.Background(), "app", "ghost", 0)
+	if err == nil {
+		t.Fatal("ResolveRollbackImage on missing deployment: expected error, got nil")
+	}
+	if !IsNotFound(err) {
 		t.Errorf("err = %v, want IsNotFound", err)
 	}
 }

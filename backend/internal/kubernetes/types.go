@@ -4,12 +4,21 @@ import "time"
 
 // Deployment is the JSON shape returned by reads.
 type Deployment struct {
-	Name              string `json:"name"`
-	Namespace         string `json:"namespace"`
-	Replicas          int32  `json:"replicas"`
-	AvailableReplicas int32  `json:"availableReplicas"`
-	UpdatedReplicas   int32  `json:"updatedReplicas"`
-	Paused            bool   `json:"paused"`
+	Name              string                `json:"name"`
+	Namespace         string                `json:"namespace"`
+	Replicas          int32                 `json:"replicas"`
+	AvailableReplicas int32                 `json:"availableReplicas"`
+	UpdatedReplicas   int32                 `json:"updatedReplicas"`
+	Paused            bool                  `json:"paused"`
+	Containers        []DeploymentContainer `json:"containers,omitempty"`
+}
+
+// DeploymentContainer is the per-container slice of a Deployment's pod template
+// the read DTO exposes — enough for the agent and UI to answer "what image is
+// running" without separately fetching pod specs.
+type DeploymentContainer struct {
+	Name  string `json:"name"`
+	Image string `json:"image"`
 }
 
 // Pod is the JSON shape returned by ListPods. NodeName, RestartCount, and
