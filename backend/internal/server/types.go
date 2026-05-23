@@ -50,6 +50,7 @@ type Operations interface {
 	PauseRollout(ctx context.Context, namespace, name string) error
 	ResumeRollout(ctx context.Context, namespace, name string) error
 	Rollback(ctx context.Context, namespace, name string, revision int64) error
+	ResolveRollbackImage(ctx context.Context, namespace, name string, revision int64) (string, error)
 }
 
 // Deps bundles the optional clients the route layer needs. Any nil field

@@ -8,6 +8,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -204,5 +205,123 @@ func TestMutationRoutes_NotFoundMapsTo404(t *testing.T) {
 		strings.NewReader(`{"namespace":"app","name":"ghost","replicas":2}`)))
 	if responseRecorder.Code != 404 {
 		t.Errorf("status = %d, want 404", responseRecorder.Code)
+	}
+}
+
+// floorEnforcer is the policy server tests need to exercise the rollback floor
+// guardrail end-to-end: the test namespace "app" plus a single floor entry for
+// "agent" at v6 (matching production semantics scaled into the local fixture).
+func floorEnforcer() *guardrails.Enforcer {
+	return guardrails.New(guardrails.Policy{
+		AllowedNamespaces:   []string{"app"},
+		RollbackImageFloors: map[string]int{"agent": 6},
+	}, slog.Default())
+}
+
+// Scenario: rollback to a Deployment with a floor where the resolver returns an
+// image at-or-above the floor → 200, ops.Rollback is invoked. This is the
+// happy path that proves the floor check does not block legitimate rollbacks.
+func TestRollbackRoute_HappyPathThroughFloor(t *testing.T) {
+	operationsStub := &stubOps{resolveImage: "repo:v6"}
+	handler := newTestHandlerWithOpsAndEnforcer(operationsStub, floorEnforcer())
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodPost, "/api/operations/rollback",
+		strings.NewReader(`{"namespace":"app","name":"agent","revision":1}`)))
+	if responseRecorder.Code != 200 {
+		t.Fatalf("status = %d, want 200; body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if operationsStub.rollbackCalls != 1 {
+		t.Errorf("ops.Rollback was called %d times, want 1", operationsStub.rollbackCalls)
+	}
+}
+
+// Scenario: rollback to a Deployment with a floor where the resolver returns
+// an image strictly below the floor → 403, the deny reason names the image,
+// the floor, and the deployment, and ops.Rollback is never invoked. The route
+// must short-circuit on guardrail denial — anything less leaks the mutation.
+func TestRollbackRoute_BelowFloorReturns403AndSkipsOps(t *testing.T) {
+	operationsStub := &stubOps{resolveImage: "repo:v5"}
+	handler := newTestHandlerWithOpsAndEnforcer(operationsStub, floorEnforcer())
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodPost, "/api/operations/rollback",
+		strings.NewReader(`{"namespace":"app","name":"agent","revision":1}`)))
+	if responseRecorder.Code != 403 {
+		t.Fatalf("status = %d, want 403; body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if operationsStub.rollbackCalls != 0 {
+		t.Errorf("ops.Rollback was called %d times despite floor denial", operationsStub.rollbackCalls)
+	}
+	var responseBody struct {
+		Error    string              `json:"error"`
+		Decision guardrails.Decision `json:"decision"`
+	}
+	if err := json.NewDecoder(responseRecorder.Body).Decode(&responseBody); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	expectedReason := fmt.Sprintf("target image %s is below floor v%d for deployment %s", "repo:v5", 6, "agent")
+	if responseBody.Decision.Reason != expectedReason || responseBody.Error != expectedReason {
+		t.Errorf("body = %+v, want reason %q in both error and decision", responseBody, expectedReason)
+	}
+}
+
+// Scenario: rollback to a Deployment whose floor lookup needs the resolver,
+// but the resolver fails. Treated as a guardrail deny (403 with the
+// "could not resolve target image: " wrapping), not a 500 — the enforcer is
+// the chokepoint and resolver failures must show up as audited denies.
+func TestRollbackRoute_ResolverErrorReturns403AndSkipsOps(t *testing.T) {
+	operationsStub := &stubOps{resolveErr: errors.New("boom")}
+	handler := newTestHandlerWithOpsAndEnforcer(operationsStub, floorEnforcer())
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodPost, "/api/operations/rollback",
+		strings.NewReader(`{"namespace":"app","name":"agent","revision":1}`)))
+	if responseRecorder.Code != 403 {
+		t.Fatalf("status = %d, want 403; body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if operationsStub.rollbackCalls != 0 {
+		t.Errorf("ops.Rollback was called %d times despite resolver error", operationsStub.rollbackCalls)
+	}
+	var responseBody struct {
+		Error    string              `json:"error"`
+		Decision guardrails.Decision `json:"decision"`
+	}
+	if err := json.NewDecoder(responseRecorder.Body).Decode(&responseBody); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if responseBody.Decision.Reason != "could not resolve target image: boom" {
+		t.Errorf("reason = %q, want %q", responseBody.Decision.Reason, "could not resolve target image: boom")
+	}
+}
+
+// Scenario: regression check — an off-allowlist namespace must still hit the
+// structural deny first, never reaching the resolver. If the implementor had
+// reordered checks (resolver before allowlist) this test would catch a
+// resolver call that should never happen.
+func TestRollbackRoute_OffAllowlistStructuralDeny(t *testing.T) {
+	// resolveErr forces an obvious failure if the resolver IS called; we
+	// don't expect it to be called, but if it is, the deny reason would be
+	// the resolver-error string instead of the namespace string.
+	operationsStub := &stubOps{resolveErr: errors.New("resolver-should-not-run")}
+	handler := newTestHandlerWithOpsAndEnforcer(operationsStub, floorEnforcer())
+	responseRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodPost, "/api/operations/rollback",
+		strings.NewReader(`{"namespace":"kube-system","name":"agent","revision":1}`)))
+	if responseRecorder.Code != 403 {
+		t.Fatalf("status = %d, want 403; body=%s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if operationsStub.rollbackCalls != 0 {
+		t.Errorf("ops.Rollback was called %d times despite structural denial", operationsStub.rollbackCalls)
+	}
+	var responseBody struct {
+		Error    string              `json:"error"`
+		Decision guardrails.Decision `json:"decision"`
+	}
+	if err := json.NewDecoder(responseRecorder.Body).Decode(&responseBody); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if !strings.Contains(responseBody.Decision.Reason, "kube-system") {
+		t.Errorf("reason = %q, want substring %q (structural namespace deny)", responseBody.Decision.Reason, "kube-system")
+	}
+	if strings.Contains(responseBody.Decision.Reason, "resolver-should-not-run") {
+		t.Errorf("reason = %q references resolver error; structural check should have short-circuited", responseBody.Decision.Reason)
 	}
 }

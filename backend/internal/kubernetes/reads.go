@@ -339,6 +339,14 @@ func deploymentDTO(deployment *appsv1.Deployment) Deployment {
 	if deployment.Spec.Replicas != nil {
 		replicas = *deployment.Spec.Replicas
 	}
+	specContainers := deployment.Spec.Template.Spec.Containers
+	containers := make([]DeploymentContainer, 0, len(specContainers))
+	for index := range specContainers {
+		containers = append(containers, DeploymentContainer{
+			Name:  specContainers[index].Name,
+			Image: specContainers[index].Image,
+		})
+	}
 	return Deployment{
 		Name:              deployment.Name,
 		Namespace:         deployment.Namespace,
@@ -346,6 +354,7 @@ func deploymentDTO(deployment *appsv1.Deployment) Deployment {
 		AvailableReplicas: deployment.Status.AvailableReplicas,
 		UpdatedReplicas:   deployment.Status.UpdatedReplicas,
 		Paused:            paused,
+		Containers:        containers,
 	}
 }
 

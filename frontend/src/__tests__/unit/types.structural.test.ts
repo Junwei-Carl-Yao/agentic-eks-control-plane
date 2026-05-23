@@ -35,11 +35,25 @@ function fieldNamesOf(interfaceName: string): string[] {
 
 describe('TS types mirror backend Go DTOs (json tag parity)', () => {
   // From backend/internal/kubernetes/types.go Deployment json tags:
-  //   name, namespace, replicas, availableReplicas, updatedReplicas, paused
+  //   name, namespace, replicas, availableReplicas, updatedReplicas, paused,
+  //   containers (omitempty).
   it('Deployment has the same fields as the Go DTO', () => {
     expect(fieldNamesOf('Deployment')).toEqual(
-      ['availableReplicas', 'name', 'namespace', 'paused', 'replicas', 'updatedReplicas'].sort(),
+      [
+        'availableReplicas',
+        'containers',
+        'name',
+        'namespace',
+        'paused',
+        'replicas',
+        'updatedReplicas',
+      ].sort(),
     );
+  });
+
+  // Go DeploymentContainer: name, image.
+  it('DeploymentContainer has the same fields as the Go DTO', () => {
+    expect(fieldNamesOf('DeploymentContainer')).toEqual(['image', 'name']);
   });
 
   // Go Pod: name, namespace, phase, labels (omitempty), nodeName (omitempty),

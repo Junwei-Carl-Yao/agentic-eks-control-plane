@@ -64,16 +64,28 @@ interface DeploymentWithStatus extends Deployment {
   status: 'healthy' | 'rolling' | 'degraded';
 }
 
-// Hash a name to a stable hue. Designs use this so every deployment has its
-// own consistent color across the topology — same swatch in the node card,
-// the bottom legend, and the details panel.
+// Hash a name to a stable color. Designs use this so every deployment has
+// its own consistent swatch across the topology — same swatch in the node
+// card, the bottom legend, and the details panel.
+//
+// The earlier polynomial hash + raw `hash % 360` clustered similar short
+// names onto neighboring hues (e.g. "backend" and "frontend" both landed in
+// the pink band). FNV-1a gives better avalanche on short strings; the
+// golden-angle multiplier (~137.508°) spreads neighboring hash values across
+// the wheel; and small saturation/lightness buckets keyed off independent
+// hash bits separate any two deployments that still collide on hue.
 function depColor(name: string): string {
-  let hash = 0;
+  let hash = 0x811c9dc5;
   for (let index = 0; index < name.length; index += 1) {
-    hash = (hash * 31 + name.charCodeAt(index)) >>> 0;
+    hash ^= name.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
   }
-  const hue = hash % 360;
-  return `hsl(${hue} 65% 70%)`;
+  const hue = (hash * 137.508) % 360;
+  const saturationBucket = (hash >>> 16) & 0x3;
+  const lightnessBucket = (hash >>> 18) & 0x3;
+  const saturation = 55 + saturationBucket * 10;
+  const lightness = 60 + lightnessBucket * 6;
+  return `hsl(${hue.toFixed(0)} ${saturation}% ${lightness}%)`;
 }
 
 // Identify the owning deployment for a pod. Standard EKS workloads carry an
@@ -644,6 +656,9 @@ function PodDetail({ podName, pods, deployments }: PodDetailProps) {
           value={deployment ? `${deployment.availableReplicas}/${deployment.replicas}` : '—'}
         />
         <KeyValue label="age" value={pod.age} />
+        {(deployment?.containers ?? []).map((container) => (
+          <KeyValue key={container.name} label={container.name} value={container.image} mono />
+        ))}
       </div>
     </div>
   );

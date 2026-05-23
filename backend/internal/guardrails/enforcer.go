@@ -1,10 +1,22 @@
 package guardrails
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
+	"maps"
 
 	"eks-control-plane/backend/internal/models"
 )
+
+// RollbackImageResolver returns the container image a rollback would put on
+// the target Deployment. It is the seam between the enforcer (which holds the
+// version floor policy) and the kubernetes ops layer (which can read the
+// ReplicaSet history). revision == 0 has the same "previous" meaning the
+// rollback op uses.
+type RollbackImageResolver interface {
+	ResolveRollbackImage(ctx context.Context, namespace, name string, revision int64) (string, error)
+}
 
 // Decision is the structured audit record returned for every Enforce call.
 // The same record is logged and returned in the API response body so the UI
@@ -31,9 +43,19 @@ func New(policy Policy, logger *slog.Logger) *Enforcer {
 		logger = slog.Default()
 	}
 	sealed := Policy{
-		AllowedNamespaces: append([]string(nil), policy.AllowedNamespaces...),
+		AllowedNamespaces:   append([]string(nil), policy.AllowedNamespaces...),
+		RollbackImageFloors: copyImageFloors(policy.RollbackImageFloors),
 	}
 	return &Enforcer{policy: sealed, logger: logger}
+}
+
+func copyImageFloors(source map[string]int) map[string]int {
+	if source == nil {
+		return nil
+	}
+	copied := make(map[string]int, len(source))
+	maps.Copy(copied, source)
+	return copied
 }
 
 // ListDeployments / ListPods / ListEvents / ListServices / ListIngresses /
@@ -127,7 +149,7 @@ func (enforcer *Enforcer) ResumeRollout(request models.ResumeRolloutRequest) Dec
 	return enforcer.simpleDeploymentMutation("resume-rollout", request.Namespace, request.Name)
 }
 
-func (enforcer *Enforcer) Rollback(request models.RollbackRequest) Decision {
+func (enforcer *Enforcer) Rollback(ctx context.Context, request models.RollbackRequest, resolver RollbackImageResolver) Decision {
 	subject := request.Namespace + "/" + request.Name
 	if reason := firstError(
 		validNamespace(request.Namespace),
@@ -136,6 +158,21 @@ func (enforcer *Enforcer) Rollback(request models.RollbackRequest) Decision {
 		enforcer.namespaceCheck(request.Namespace),
 	); reason != "" {
 		return enforcer.deny("rollback", subject, reason)
+	}
+	floor, hasFloor := enforcer.policy.RollbackImageFloors[request.Name]
+	if !hasFloor {
+		return enforcer.allow("rollback", subject)
+	}
+	image, err := resolver.ResolveRollbackImage(ctx, request.Namespace, request.Name, request.Revision)
+	if err != nil {
+		return enforcer.deny("rollback", subject, "could not resolve target image: "+err.Error())
+	}
+	version, ok := parseImageVersion(image)
+	if !ok {
+		return enforcer.deny("rollback", subject, "target image "+image+" has no parseable v<int> tag")
+	}
+	if version < floor {
+		return enforcer.deny("rollback", subject, fmt.Sprintf("target image %s is below floor v%d for deployment %s", image, floor, request.Name))
 	}
 	return enforcer.allow("rollback", subject)
 }

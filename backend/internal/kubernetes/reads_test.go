@@ -3,9 +3,15 @@ package kubernetes
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Scenario: namespace contains N deployments → ListDeployments returns all of them.
@@ -395,6 +401,197 @@ func TestClusterHealth_UnhealthyWhenProbeFails(t *testing.T) {
 	}
 	if health.Healthy {
 		t.Errorf("Healthy = true, want false when probe fails")
+	}
+}
+
+// Scenario: a deployment's pod template declares multiple primary containers →
+// deploymentDTO projects them onto Containers in the SAME order they appear in
+// Spec.Template.Spec.Containers, with Name + Image carried verbatim. This is
+// the contract the agent's list_deployments tool and the frontend pod-detail
+// panel rely on to render "what image is running" without a second fetch.
+func TestDeploymentDTO_PopulatesContainersInSpecOrder(t *testing.T) {
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "app", Name: "web"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "nginx", Image: "nginx:1.27"},
+						{Name: "istio-proxy", Image: "docker.io/istio/proxyv2:1.20.0"},
+					},
+				},
+			},
+		},
+	}
+	dto := deploymentDTO(deployment)
+	if len(dto.Containers) != 2 {
+		t.Fatalf("len(Containers) = %d, want 2; got %+v", len(dto.Containers), dto.Containers)
+	}
+	if dto.Containers[0].Name != "nginx" || dto.Containers[0].Image != "nginx:1.27" {
+		t.Errorf("Containers[0] = %+v, want {nginx, nginx:1.27}", dto.Containers[0])
+	}
+	if dto.Containers[1].Name != "istio-proxy" || dto.Containers[1].Image != "docker.io/istio/proxyv2:1.20.0" {
+		t.Errorf("Containers[1] = %+v, want {istio-proxy, docker.io/istio/proxyv2:1.20.0}", dto.Containers[1])
+	}
+}
+
+// Scenario: a deployment declares init containers alongside its primary
+// containers → init containers do NOT appear in DTO.Containers. The agreed
+// contract says Containers is populated from Spec.Template.Spec.Containers
+// only; an init-container leak would mislead the operator's "what image is
+// running" inspection because init containers run once at boot and aren't
+// present in the steady-state pod.
+func TestDeploymentDTO_ExcludesInitContainers(t *testing.T) {
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "app", Name: "web"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app", Image: "app:v1"},
+					},
+					InitContainers: []corev1.Container{
+						{Name: "migrate", Image: "migrate:v1"},
+						{Name: "wait-for-db", Image: "busybox:1.36"},
+					},
+				},
+			},
+		},
+	}
+	dto := deploymentDTO(deployment)
+	if len(dto.Containers) != 1 {
+		t.Fatalf("len(Containers) = %d, want 1 (init must not leak in); got %+v",
+			len(dto.Containers), dto.Containers)
+	}
+	if dto.Containers[0].Name != "app" {
+		t.Errorf("Containers[0].Name = %q, want app (got an init container instead?)", dto.Containers[0].Name)
+	}
+	for _, container := range dto.Containers {
+		if container.Name == "migrate" || container.Name == "wait-for-db" {
+			t.Errorf("init container %q leaked into Containers", container.Name)
+		}
+	}
+}
+
+// Scenario: a deployment's pod template has zero containers → DTO.Containers
+// is empty and the JSON-encoded wire format MUST NOT contain the "containers"
+// key. The DTO uses `omitempty`; serializing an empty slice as `"containers":[]`
+// would burn bytes on every Deployment in a list response and obscure the
+// "really has nothing" signal from clients that count keys.
+func TestDeploymentDTO_OmitsContainersKeyWhenZeroContainers(t *testing.T) {
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "app", Name: "web"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{Containers: nil},
+			},
+		},
+	}
+	dto := deploymentDTO(deployment)
+	if len(dto.Containers) != 0 {
+		t.Errorf("Containers = %+v, want empty", dto.Containers)
+	}
+	body, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(body), "\"containers\"") {
+		t.Errorf("wire JSON contains the containers key even though empty:\n%s", body)
+	}
+}
+
+// Scenario: digest-pinned images (repo@sha256:...) flow through verbatim. The
+// raw Container.Image string is what the agent and UI need to render — any
+// normalization (stripping the digest, splitting repo from tag) would change
+// the contract and hide what's actually deployed.
+func TestDeploymentDTO_PreservesDigestPinnedImageVerbatim(t *testing.T) {
+	digestPinned := "ghcr.io/example/app@sha256:" + strings.Repeat("a", 64)
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "app", Name: "web"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "app", Image: digestPinned},
+					},
+				},
+			},
+		},
+	}
+	dto := deploymentDTO(deployment)
+	if len(dto.Containers) != 1 {
+		t.Fatalf("len = %d, want 1", len(dto.Containers))
+	}
+	if dto.Containers[0].Image != digestPinned {
+		t.Errorf("Image = %q, want %q (must be verbatim)", dto.Containers[0].Image, digestPinned)
+	}
+}
+
+// Scenario: ListDeployments returns container info for each deployment in
+// addition to the existing replica fields. Exercises the helper through the
+// public reader, ensuring the path the route layer actually calls populates
+// Containers (not just the unexported helper in isolation).
+func TestListDeployments_CarriesContainers(t *testing.T) {
+	kubeClient := newFakeClient(t,
+		withDeploymentContainers("app", "web", "nginx", "nginx:1.27", "istio-proxy", "istio/proxyv2:1.20.0"),
+	)
+	deployments, err := kubeClient.ListDeployments(context.Background(), "app")
+	if err != nil || len(deployments) != 1 {
+		t.Fatalf("ListDeployments: (%v, %v)", deployments, err)
+	}
+	containers := deployments[0].Containers
+	if len(containers) != 2 {
+		t.Fatalf("len(Containers) = %d, want 2", len(containers))
+	}
+	if containers[0].Name != "nginx" || containers[0].Image != "nginx:1.27" {
+		t.Errorf("Containers[0] = %+v", containers[0])
+	}
+	if containers[1].Name != "istio-proxy" || containers[1].Image != "istio/proxyv2:1.20.0" {
+		t.Errorf("Containers[1] = %+v", containers[1])
+	}
+}
+
+// Scenario: GetDeployment (single-resource route) carries the same Containers
+// slice as the list route. Both routes flow through deploymentDTO; this test
+// guards against a future refactor diverging the two paths.
+func TestGetDeployment_CarriesContainers(t *testing.T) {
+	kubeClient := newFakeClient(t,
+		withDeploymentContainers("app", "web", "nginx", "nginx:1.27"),
+	)
+	deployment, err := kubeClient.GetDeployment(context.Background(), "app", "web")
+	if err != nil {
+		t.Fatalf("GetDeployment: %v", err)
+	}
+	if len(deployment.Containers) != 1 {
+		t.Fatalf("len = %d, want 1", len(deployment.Containers))
+	}
+	if deployment.Containers[0].Name != "nginx" || deployment.Containers[0].Image != "nginx:1.27" {
+		t.Errorf("Containers[0] = %+v", deployment.Containers[0])
+	}
+}
+
+// Scenario: a deployment seeded through the fake clientset with init
+// containers does NOT surface them on the public list response. This is the
+// same property the unit test on deploymentDTO checks, but via the public
+// reader — guards against a future refactor pulling container info from the
+// full PodSpec (Containers + InitContainers) instead of just Containers.
+func TestListDeployments_ExcludesInitContainersAtPublicReader(t *testing.T) {
+	primary := []corev1.Container{{Name: "app", Image: "app:v1"}}
+	init := []corev1.Container{{Name: "migrate", Image: "migrate:v1"}}
+	kubeClient := newFakeClient(t,
+		withDeploymentContainersAndInit("app", "web", primary, init),
+	)
+	deployments, err := kubeClient.ListDeployments(context.Background(), "app")
+	if err != nil || len(deployments) != 1 {
+		t.Fatalf("ListDeployments: (%v, %v)", deployments, err)
+	}
+	for _, container := range deployments[0].Containers {
+		if container.Name == "migrate" {
+			t.Errorf("init container leaked into list response: %+v", deployments[0].Containers)
+		}
+	}
+	if len(deployments[0].Containers) != 1 || deployments[0].Containers[0].Name != "app" {
+		t.Errorf("Containers = %+v, want [{app, app:v1}]", deployments[0].Containers)
 	}
 }
 

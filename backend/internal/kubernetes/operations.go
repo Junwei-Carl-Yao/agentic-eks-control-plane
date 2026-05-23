@@ -63,6 +63,45 @@ func (client *Client) ResumeRollout(ctx context.Context, namespace, name string)
 	})
 }
 
+// ResolveRollbackImage returns the container image a Rollback to revision
+// would put on the Deployment, without performing the rollback. The
+// guardrails enforcer calls this to apply the per-deployment version floor
+// before any cluster mutation. The resolve work duplicates Rollback's first
+// half by design — sharing the resolved revision across the two calls would
+// require leaking the lookup outside the ops layer.
+func (client *Client) ResolveRollbackImage(ctx context.Context, namespace, name string, revision int64) (string, error) {
+	deployment, err := client.kubernetesInterface.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", fmt.Errorf("%w: deployment %s/%s", ErrNotFound, namespace, name)
+		}
+		return "", fmt.Errorf("kubernetes: get deployment: %w", err)
+	}
+	target, err := client.targetRevision(ctx, namespace, deployment, revision)
+	if err != nil {
+		return "", err
+	}
+	replicaSetList, err := client.kubernetesInterface.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("kubernetes: list replicasets: %w", err)
+	}
+	deploymentReplicaSets := replicaSetsForDeployment(replicaSetList.Items, deployment.Name)
+	replicaSet := findReplicaSetByRevision(deploymentReplicaSets, target)
+	if replicaSet == nil {
+		return "", fmt.Errorf("kubernetes: rollback: revision %d not found for deployment %s/%s", target, namespace, name)
+	}
+	containers := replicaSet.Spec.Template.Spec.Containers
+	if len(containers) == 0 {
+		return "", fmt.Errorf("kubernetes: rollback: revision %d of deployment %s/%s has no containers", target, namespace, name)
+	}
+	for index := range containers {
+		if containers[index].Name == deployment.Name {
+			return containers[index].Image, nil
+		}
+	}
+	return containers[0].Image, nil
+}
+
 // Rollback reverts a Deployment to a prior revision. revision == 0 means
 // "previous" (matches `kubectl rollout undo`); otherwise the explicit revision.
 func (client *Client) Rollback(ctx context.Context, namespace, name string, revision int64) error {

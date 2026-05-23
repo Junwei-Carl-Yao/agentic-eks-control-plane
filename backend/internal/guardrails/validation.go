@@ -3,7 +3,14 @@ package guardrails
 import (
 	"fmt"
 	"regexp"
+	"strconv"
+	"strings"
 )
+
+// imageVersionTag matches the strict `v<int>` tag form the floor policy
+// understands. Anything else (latest, semver, sha pins) is treated as
+// unparseable so the enforcer denies rather than guesses.
+var imageVersionTag = regexp.MustCompile(`^v(\d+)$`)
 
 // dns1123Label matches the rule kube-apiserver actually applies to Deployment,
 // ConfigMap, and Namespace names: DNS-1123 *label* (max 63 chars, lowercase
@@ -60,4 +67,33 @@ func validRevision(revision int64) error {
 		return fmt.Errorf("revision must be >= 0, got %d", revision)
 	}
 	return nil
+}
+
+// parseImageVersion extracts the integer N from an image reference whose tag
+// has the form `v<N>`. A digest pin (`@sha256:...`) has no parseable tag and
+// returns false. The tag is the substring after the last `:` in the segment
+// after the last `/`, which correctly handles `registry:5000/repo:v4` because
+// the registry-port colon lives in an earlier segment.
+func parseImageVersion(image string) (int, bool) {
+	if atIndex := strings.LastIndex(image, "@"); atIndex >= 0 {
+		image = image[:atIndex]
+	}
+	tagBearing := image
+	if slashIndex := strings.LastIndex(image, "/"); slashIndex >= 0 {
+		tagBearing = image[slashIndex+1:]
+	}
+	colonIndex := strings.LastIndex(tagBearing, ":")
+	if colonIndex < 0 {
+		return 0, false
+	}
+	tag := tagBearing[colonIndex+1:]
+	match := imageVersionTag.FindStringSubmatch(tag)
+	if match == nil {
+		return 0, false
+	}
+	version, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, false
+	}
+	return version, true
 }

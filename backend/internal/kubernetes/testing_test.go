@@ -122,6 +122,53 @@ func withPausedDeployment(namespace, name string) fakeOption {
 	}
 }
 
+// withDeploymentContainers seeds a deployment whose pod template carries the
+// given (name, image) pairs as primary containers in declaration order.
+// imagePairs must contain an even number of strings: name1, image1, name2, image2, ...
+func withDeploymentContainers(namespace, name string, imagePairs ...string) fakeOption {
+	return func(builder *fakeBuilder) {
+		if len(imagePairs)%2 != 0 {
+			panic("withDeploymentContainers: imagePairs must be (name,image)*")
+		}
+		containers := make([]corev1.Container, 0, len(imagePairs)/2)
+		for index := 0; index < len(imagePairs); index += 2 {
+			containers = append(containers, corev1.Container{
+				Name:  imagePairs[index],
+				Image: imagePairs[index+1],
+			})
+		}
+		deployment := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+			Spec: appsv1.DeploymentSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{Containers: containers},
+				},
+			},
+		}
+		builder.objects = append(builder.objects, deployment)
+	}
+}
+
+// withDeploymentContainersAndInit seeds a deployment with both primary
+// containers and init containers, so tests can prove init containers do NOT
+// leak into the DTO's Containers slice.
+func withDeploymentContainersAndInit(namespace, name string, primary, init []corev1.Container) fakeOption {
+	return func(builder *fakeBuilder) {
+		deployment := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+			Spec: appsv1.DeploymentSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers:     primary,
+						InitContainers: init,
+					},
+				},
+			},
+		}
+		builder.objects = append(builder.objects, deployment)
+	}
+}
+
 // withRevisionHistory seeds a deployment plus one ReplicaSet per revision. The
 // deployment's current revision is the largest entry in revisions.
 func withRevisionHistory(namespace, name string, revisions []int64) fakeOption {
@@ -160,6 +207,59 @@ func withRevisionHistory(namespace, name string, revisions []int64) fakeOption {
 								"revision": strconv.FormatInt(revision, 10),
 							},
 						},
+					},
+				},
+			}
+			builder.objects = append(builder.objects, replicaSet)
+		}
+	}
+}
+
+// revisionContainers describes one historical ReplicaSet for a deployment:
+// the revision number and the container set frozen into that revision's pod
+// template. Used by withRevisionHistoryAndContainers to seed enough state for
+// the rollback image-resolution path without painting containers onto every
+// historical ReplicaSet by hand.
+type revisionContainers struct {
+	revision   int64
+	containers []corev1.Container
+}
+
+// withRevisionHistoryAndContainers seeds a deployment whose ReplicaSets each
+// carry their own container set. Mirrors withRevisionHistory but lets the test
+// pin the image-per-revision contents the rollback resolver inspects.
+func withRevisionHistoryAndContainers(namespace, deploymentName string, history []revisionContainers) fakeOption {
+	return func(builder *fakeBuilder) {
+		var currentRevision int64
+		for _, entry := range history {
+			if entry.revision > currentRevision {
+				currentRevision = entry.revision
+			}
+		}
+		deployment := makeDeployment(namespace, deploymentName, 1)
+		deployment.UID = types.UID(fmt.Sprintf("%s-uid", deploymentName))
+		deployment.Annotations = map[string]string{
+			revisionAnnotation: strconv.FormatInt(currentRevision, 10),
+		}
+		builder.objects = append(builder.objects, deployment)
+		for _, entry := range history {
+			replicaSet := &appsv1.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: namespace,
+					Name:      fmt.Sprintf("%s-rev%d", deploymentName, entry.revision),
+					Annotations: map[string]string{
+						revisionAnnotation: strconv.FormatInt(entry.revision, 10),
+					},
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       deploymentName,
+						UID:        deployment.UID,
+					}},
+				},
+				Spec: appsv1.ReplicaSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{Containers: entry.containers},
 					},
 				},
 			}
