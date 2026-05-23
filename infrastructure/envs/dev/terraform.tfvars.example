@@ -23,3 +23,12 @@ backend_service_account = "backend"
 tags = {
   Owner = "platform"
 }
+
+# Custom HTTPS domain (optional). Leave domain_name empty to skip cert + DNS
+# resources entirely. When set, the first `terraform apply` creates and
+# DNS-validates an ACM cert; a second apply with create_dns_alias=true
+# (after `make deploy` provisions the ALB) writes the Route53 A-alias.
+domain_name      = ""
+subdomain        = ""
+hosted_zone_id   = ""
+create_dns_alias = false

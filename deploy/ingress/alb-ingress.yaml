@@ -5,6 +5,25 @@
 #
 # Path ordering is "most specific first": /api/agent/* must precede /api/*
 # so agent traffic doesn't get absorbed by the backend route.
+#
+# Two rules:
+#   1. Custom domain (host: __HOST__) — listener serves HTTP and HTTPS;
+#      HTTP requests are redirected to HTTPS by the named `ssl-redirect`
+#      action defined in the annotations. The HTTPS listener uses the ACM
+#      cert provisioned by infrastructure/dns.tf.
+#   2. Host-less catch-all — keeps the raw ELB URL (the
+#      k8s-controlp-*.elb.amazonaws.com hostname) working on HTTP during
+#      migration. HTTPS on the raw ELB URL also responds, but with a cert
+#      mismatch warning (the cert is scoped to the custom domain only).
+#
+# Both rules share the same service backends, so traffic ends up at the
+# same pods regardless of which hostname the client used.
+#
+# Templating: __CERT_ARN__ and __HOST__ are substituted by scripts/deploy.sh
+# from `terraform output certificate_arn` and `terraform output app_url`
+# before `kubectl apply`. The original (no-custom-domain) shape is restored
+# when domain_name is empty in terraform.tfvars — the deploy script falls
+# back to the catch-all rule and drops the custom-domain rule.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -15,11 +34,48 @@ metadata:
     # ip target-type lets the ALB reach pod IPs directly (VPC CNI assigns
     # routable ENIs) instead of going through node ports.
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/certificate-arn: __CERT_ARN__
     alb.ingress.kubernetes.io/healthcheck-path: /health
+    # Named action used as a backend on the custom-domain HTTP rule. The
+    # LBC special-cases the `ssl-redirect` action: when matched on the HTTP
+    # listener it returns a 301 to HTTPS, on the HTTPS listener it falls
+    # through to the next backend on the same path.
+    alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type":"redirect","RedirectConfig":{"Protocol":"HTTPS","Port":"443","StatusCode":"HTTP_301"}}'
 spec:
   ingressClassName: alb
   rules:
+    - host: __HOST__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ssl-redirect
+                port:
+                  name: use-annotation
+          - path: /api/agent
+            pathType: Prefix
+            backend:
+              service:
+                name: agent
+                port:
+                  number: 8081
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
     - http:
         paths:
           - path: /api/agent

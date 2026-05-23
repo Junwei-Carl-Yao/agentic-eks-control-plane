@@ -87,3 +87,13 @@ output "kubeconfig_command" {
   description = "Shell command to update the local kubeconfig for this cluster."
   value       = "aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ${var.region}"
 }
+
+output "certificate_arn" {
+  description = "ARN of the ACM certificate covering <subdomain>.<domain_name>. Empty string when domain_name is unset."
+  value       = local.custom_domain_enabled ? aws_acm_certificate_validation.app[0].certificate_arn : ""
+}
+
+output "app_url" {
+  description = "Public HTTPS URL the Route53 alias points at. Empty when no custom domain is configured."
+  value       = local.custom_domain_enabled ? "https://${local.fqdn}" : ""
+}
