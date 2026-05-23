@@ -38,7 +38,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 **Kubernetes Control Surface:**
 - Exposes a constrained set of mutation operations on:
   - Deployments (scale, rollout restart, pause/resume rollout, rollback)
-- Read capabilities support decision-making across deployments, pods, events, logs, services, ingresses, horizontal pod autoscalers, namespaces, nodes (names only), configmaps, and replicasets
+- Read capabilities support decision-making across deployments, pods, events, logs, services, ingresses, horizontal pod autoscalers, namespaces, nodes (names only), and replicasets
 
 **Infrastructure Layer (Terraform):**
 - Provisions the EKS cluster and networking (VPC, node groups)
@@ -68,7 +68,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 ## Agent Permissions
 
 **Allowed:**
-- Read cluster state (deployments, pods, events, logs, services, ingresses, horizontal pod autoscalers, namespaces, node names, configmaps, replicasets)
+- Read cluster state (deployments, pods, events, logs, services, ingresses, horizontal pod autoscalers, namespaces, node names, replicasets)
 - Scale deployments
 - Rollout restart deployments
 - Pause/resume rollout
@@ -86,7 +86,7 @@ The system provisions infrastructure via Terraform and exposes a web dashboard w
 - `make apply` provisions a working EKS cluster with networking and node groups
 - Users can issue natural-language commands to perform guardrailed operations (e.g., scale, rollout restart, rollback)
 - The backend correctly enforces guardrails and rejects unsafe or disallowed operations
-- The backend enforcer is invoked for all write operations before execution
+- The backend enforcer is invoked for all operations before execution
 - The dashboard reflects live cluster state and operation results
 - `make destroy` tears everything down cleanly without orphaned resources
 - Comprehensive test coverage and evaluations
