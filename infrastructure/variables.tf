@@ -49,7 +49,7 @@ variable "node_instance_types" {
 variable "node_desired_size" {
   description = "Desired number of nodes in the managed node group."
   type        = number
-  default     = 2
+  default     = 3
 }
 
 variable "node_min_size" {
@@ -61,7 +61,7 @@ variable "node_min_size" {
 variable "node_max_size" {
   description = "Maximum number of nodes in the managed node group."
   type        = number
-  default     = 4
+  default     = 3
 }
 
 variable "state_bucket_name" {
