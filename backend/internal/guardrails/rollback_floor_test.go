@@ -82,8 +82,8 @@ func TestDefaultPolicy_RollbackImageFloorsExact(t *testing.T) {
 	floors := DefaultPolicy().RollbackImageFloors
 	expected := map[string]int{
 		"agent":    6,
-		"backend":  4,
-		"frontend": 4,
+		"backend":  6,
+		"frontend": 8,
 	}
 	if len(floors) != len(expected) {
 		t.Fatalf("RollbackImageFloors has %d entries, want %d: %+v", len(floors), len(expected), floors)

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { AboutModal } from '@/components/AboutModal';
 import { ChatPanel } from '@/components/ChatPanel';
 import { Splitter } from '@/components/Splitter';
 import { ZoneMap } from '@/components/ZoneMap';
@@ -21,6 +22,7 @@ function readInitialTheme(): Theme {
 export default function App() {
   const [chatWidth, setChatWidth] = useState(560);
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -50,6 +52,15 @@ export default function App() {
             </span>
             <div className="app-brand-title">EKS Control Plane</div>
           </div>
+
+          <button type="button" className="app-about-btn" onClick={() => setAboutOpen(true)}>
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+              <circle cx="8" cy="8" r="6.4" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M8 7.2 v3.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              <circle cx="8" cy="5.2" r="0.7" fill="currentColor" />
+            </svg>
+            About this project
+          </button>
         </div>
 
         <button
@@ -94,6 +105,8 @@ export default function App() {
           <ChatPanel />
         </aside>
       </div>
+
+      {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
     </div>
   );
 }

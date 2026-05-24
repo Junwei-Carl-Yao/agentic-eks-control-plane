@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import App from '@/App';
 import { apiClient } from '@/api/client';
@@ -72,5 +73,41 @@ describe('App', () => {
     renderWithClient(<App />);
     expect(document.querySelector('a[href]')).toBeNull();
     expect(document.body.innerHTML).not.toMatch(/#\//);
+  });
+
+  it('opens the About modal from the header button and closes it via the X', async () => {
+    renderWithClient(<App />);
+
+    // Modal not present initially.
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    const aboutButton = await screen.findByRole('button', { name: /About this project/i });
+    expect(aboutButton).toHaveClass('app-about-btn');
+    await userEvent.click(aboutButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+
+    // Close via the X.
+    const closeButton = screen.getByRole('button', { name: /close/i });
+    await userEvent.click(closeButton);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  it('closes the About modal when Escape is pressed', async () => {
+    renderWithClient(<App />);
+
+    const aboutButton = await screen.findByRole('button', { name: /About this project/i });
+    await userEvent.click(aboutButton);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
   });
 });
