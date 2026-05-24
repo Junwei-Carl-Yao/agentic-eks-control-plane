@@ -18,7 +18,7 @@ const SPEC_TAGLINE = 'Agentic infrastructure operations, with guardrails';
 const SPEC_DESCRIPTION =
   'A control plane for Amazon EKS that turns natural-language requests into safe, constrained Kubernetes operations. The agent decides intent; the backend enforces what may actually be executed.';
 
-const SPEC_CAPABILITY_TITLES = ['Dashboard', 'Agent', 'Enforcer', 'Infrastructure'];
+const SPEC_CAPABILITY_TITLES = ['Dashboard', 'Agent', 'Guardrail', 'Infrastructure'];
 
 const SPEC_STACK_AREAS = ['Infrastructure', 'Backend', 'Agent runtime', 'Frontend', 'Delivery'];
 
@@ -128,6 +128,34 @@ describe('AboutModal', () => {
 
     expect(readBadges.length).toBe(13);
     expect(writeBadges.length).toBe(5);
+  });
+
+  it('renders the Policy section with the six numbered enforcer rules', () => {
+    render(<AboutModal onClose={() => {}} />);
+    const dialog = screen.getByRole('dialog');
+
+    const heading = within(dialog).getByRole('heading', { level: 2, name: 'Policy' });
+    const section = heading.closest('section') as HTMLElement;
+    expect(section).not.toBeNull();
+
+    const expectedNames = [
+      'Namespace allowlist',
+      'DNS-1123 validation',
+      'Replica bounds',
+      'Revision bounds',
+      'Rollback image floors',
+      'Audit trail',
+    ];
+
+    const rows = Array.from(section.querySelectorAll('.c4-rule'));
+    expect(rows.length).toBe(expectedNames.length);
+
+    expectedNames.forEach((name, index) => {
+      const row = rows[index] as HTMLElement;
+      const expectedIdx = String(index + 1).padStart(2, '0');
+      expect(within(row).getByText(expectedIdx)).toBeInTheDocument();
+      expect(within(row).getByText(name)).toBeInTheDocument();
+    });
   });
 
   it('renders the More information section with four external links', () => {

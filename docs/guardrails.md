@@ -24,7 +24,7 @@ Hardcoded in `guardrails/policy.go`:
 | `AllowedNamespaces` | `["control-plane"]` | Empty list is default-deny. Widening requires a code change and rebuild. |
 | `MaxReplicas` | `10` | Hard upper bound for `Scale`. |
 | `MinReplicas` | `2` | Hard lower bound for `Scale`. Keeps a rolling restart from dropping the app to zero available pods. |
-| `RollbackImageFloors` | `{"agent": 6, "backend": 4, "frontend": 4}` | Rollback targeting one of these Deployments must result in an image whose tag parses as `v<int>` and is at or above the floor. |
+| `RollbackImageFloors` | `{"agent": 6, "backend": 7, "frontend": 9}` | Rollback targeting one of these Deployments must result in an image whose tag parses as `v<int>` and is at or above the floor. The floor is bumped to the current deployed version each time a new image ships, so the only rollback target the enforcer accepts is the current revision until a newer one is deployed. |
 
 Tests construct their own `Policy`; the production binary uses `DefaultPolicy()`.
 

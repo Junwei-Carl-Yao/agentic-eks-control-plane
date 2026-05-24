@@ -39,8 +39,8 @@ func DefaultPolicy() Policy {
 		AllowedNamespaces: []string{"control-plane"},
 		RollbackImageFloors: map[string]int{
 			"agent":    6,
-			"backend":  6,
-			"frontend": 8,
+			"backend":  7,
+			"frontend": 9,
 		},
 	}
 }

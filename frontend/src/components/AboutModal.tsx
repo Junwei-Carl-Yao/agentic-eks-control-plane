@@ -34,7 +34,7 @@ const CAPABILITIES: Capability[] = [
   },
   {
     icon: 'shield',
-    title: 'Enforcer',
+    title: 'Guardrail',
     body: 'A safety layer between the agent and the Kubernetes API. Every tool call passes through it, so safety lives in the backend instead of the prompt.',
   },
   {
@@ -167,6 +167,38 @@ const NAME = 'EKS Control Plane';
 const TAGLINE = 'Agentic infrastructure operations, with guardrails';
 const DESCRIPTION =
   'A control plane for Amazon EKS that turns natural-language requests into safe, constrained Kubernetes operations. The agent decides intent; the backend enforces what may actually be executed.';
+
+interface PolicyRule {
+  name: string;
+  body: string;
+}
+
+const POLICY_RULES: PolicyRule[] = [
+  {
+    name: 'Namespace allowlist',
+    body: 'Every namespace-scoped action targets a namespace on the allowlist. Today that is control-plane; everything else is denied at the enforcer.',
+  },
+  {
+    name: 'DNS-1123 validation',
+    body: 'Namespace, deployment, pod, and container names must be valid DNS-1123 labels — lowercase alphanumeric with dashes, 63 chars max.',
+  },
+  {
+    name: 'Replica bounds',
+    body: 'Scale requests are clamped to [2, 10]. The lower bound keeps a rolling restart from dropping pods to zero; the upper bound is a hardcoded ceiling.',
+  },
+  {
+    name: 'Revision bounds',
+    body: 'Rollback requires revision ≥ 0. Zero means the immediately previous revision; positive values target a specific historical one.',
+  },
+  {
+    name: 'Rollback image floors',
+    body: 'Per-deployment minimum image version. The target must carry a v<int> tag at or above the floor; digest pins, semver, and "latest" are rejected.',
+  },
+  {
+    name: 'Audit trail',
+    body: 'Every decision — allow or deny — is logged with action, subject, and reason. Denials also flow back in the API response so the UI can surface them.',
+  },
+];
 
 interface InfoLink {
   icon: IconName;
@@ -334,6 +366,23 @@ export function AboutModal({ onClose }: AboutModalProps) {
                     {agentTool.prompt}
                     <span className="c4-tool-prompt-quote">”</span>
                   </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="c4-section">
+            <div className="c4-section-h">
+              <h2 className="c4-h2">Policy</h2>
+            </div>
+            <div className="c4-rules">
+              {POLICY_RULES.map((rule, index) => (
+                <div key={rule.name} className="c4-rule">
+                  <div className="c4-rule-l">
+                    <span className="c4-rule-idx">{String(index + 1).padStart(2, '0')}</span>
+                    <span className="c4-rule-name">{rule.name}</span>
+                  </div>
+                  <div className="c4-rule-body">{rule.body}</div>
                 </div>
               ))}
             </div>
