@@ -20,7 +20,8 @@
       "PowerShell(& \"D:\\\\EKS Control Plane\\\\scripts\\\\demo-up.ps1\")",
       "PowerShell(& \"D:\\\\EKS Control Plane\\\\scripts\\\\demo-down.ps1\")",
       "Bash(gh pr *)",
-      "Bash(helm template *)"
+      "Bash(helm template *)",
+      "mcp__playwright__browser_*"
     ]
   }
 }

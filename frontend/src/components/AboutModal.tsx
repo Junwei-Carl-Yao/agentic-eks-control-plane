@@ -48,7 +48,7 @@ const STACK: StackLayer[] = [
   { area: 'Infrastructure', tools: ['Terraform', 'AWS EKS', 'Kubernetes', 'VPC', 'IAM', 'S3'] },
   { area: 'Backend', tools: ['Go', 'client-go'] },
   { area: 'Agent runtime', tools: ['Claude Agent SDK'] },
-  { area: 'Frontend', tools: ['React', 'Vite', 'TypeScript'] },
+  { area: 'Frontend', tools: ['React', 'Vite', 'TypeScript', 'Claude Design'] },
   { area: 'Delivery', tools: ['Helm', 'ALB Controller'] },
 ];
 
@@ -63,7 +63,7 @@ const AGENT_TOOLS: AgentTool[] = [
     kind: 'read',
     name: 'cluster_health',
     desc: 'Live apiserver healthy flag',
-    prompt: 'Is the apiserver healthy?',
+    prompt: 'Is the server healthy?',
   },
   {
     kind: 'read',
@@ -87,13 +87,13 @@ const AGENT_TOOLS: AgentTool[] = [
     kind: 'read',
     name: 'get_deployment',
     desc: 'Fetch a single deployment by name',
-    prompt: "What's the state of the api deployment?",
+    prompt: "What's the state of the agent deployment?",
   },
   {
     kind: 'read',
     name: 'list_replicasets',
     desc: 'List ReplicaSets in a namespace',
-    prompt: 'Show ReplicaSets for the api deployment',
+    prompt: 'Show ReplicaSets for the backend deployment',
   },
   {
     kind: 'read',
@@ -105,7 +105,7 @@ const AGENT_TOOLS: AgentTool[] = [
     kind: 'read',
     name: 'list_services',
     desc: 'List services, their types and ports',
-    prompt: 'How is the api deployment exposed?',
+    prompt: 'How is the frontend deployment exposed?',
   },
   {
     kind: 'read',
