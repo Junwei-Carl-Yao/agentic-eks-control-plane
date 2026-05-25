@@ -1,5 +1,7 @@
 # Agentic EKS Control Plane
 
+**Live demo:** https://k8s-agent-demo.carlyao.dev/
+
 Agentic control plane for Amazon EKS with guardrailed AI operations.
 
 A web dashboard lets an operator issue natural-language requests ("scale `agent` to 3 replicas", "restart the `frontend` rollout in `control-plane`"). A single Claude agent maps each request to structured tool calls against a Go backend, which is the only path that touches the Kubernetes API and the place policy is enforced.
